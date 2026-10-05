@@ -1,100 +1,130 @@
-# Astral Party Korean Plugin
+# AstralPartyKoreanPlugin
 
-Astral Party Windows Steam 글로벌판/중국판용 한국어 패치 플러그인입니다. `astral-party-auto-patcher/windows-plugin`에서 분리했으며, BepInEx가 설치된 게임에 추가하는 두 DLL만 빌드·배포합니다.
+아스트랄 파티 Steam 글로벌판·중국판에 한국어 리소스를 적용하는 BepInEx 플러그인입니다. 게임을 실행하면 최신 한글패치 리소스를 확인하고, 설치된 게임과 호환되는 파일을 준비합니다.
+
+- 게임 실행 시 한글패치 리소스 확인과 자동 다운로드
+- 게임 버전과 파일 해시를 확인한 뒤 패치 적용
+- 내려받은 파일을 캐시에 보관하고 다음 실행에서 재사용
+- 시작 시 진행 상황 표시와 게임 내 패치 상태 오버레이
 
 ## 설치
 
-1. 게임 폴더(`8vJXnINT` 또는 `8vJXn6CN`)에 **BepInEx 6 Unity IL2CPP Windows x64** 계열을 먼저 설치합니다. 특정 빌드 번호는 요구하지 않습니다. 런타임과 `BepInEx/core/dobby.dll`은 이 플러그인 ZIP에 포함되지 않습니다.
-2. `BepInEx/config/BepInEx.cfg`에 아래 설정을 적용합니다. 기존 파일의 해당 항목만 수정하세요. Astral Party의 HybridCLR 시작 문제를 피하기 위한 설정입니다.
+Windows x64의 Steam판을 대상으로 합니다. 게임에 **BepInEx 6 Unity IL2CPP Windows x64**가 먼저 설치되어 있어야 합니다. 플러그인 ZIP에는 한글패치 DLL 두 개만 들어 있습니다.
 
-   ```ini
-   [Logging]
-   UnityLogListening = false
+### 1. BepInEx 설치와 게임용 설정
 
-   [Logging.Console]
-   Enabled = false
+1. 게임을 종료하고, Steam 라이브러리에서 아스트랄 파티를 우클릭해 **관리 → 로컬 파일 보기**를 선택합니다.
+2. 실행하는 판에 맞는 폴더로 들어갑니다. 아래 실행 파일이 있는 위치에 BepInEx와 플러그인을 설치합니다.
 
-   [Logging.Disk]
-   WriteUnityLog = false
-   ```
+   | Steam판 | 폴더 | 실행 파일 |
+   | --- | --- | --- |
+   | 글로벌판 | `8vJXnINT` | `AstralParty_INT.exe` |
+   | 중국판 | `8vJXn6CN` | `AstralParty_CN.exe` |
 
-3. 플러그인 ZIP을 게임 폴더에 풀고 Steam에서 실행합니다. INT/CN 경로를 자동 판별하고 `maynut02/astral-party-korean-patch`의 최신 호환 리소스를 확인합니다.
+3. [BepInEx 다운로드](https://builds.bepinex.dev/projects/bepinex_be)에서 **Unity IL2CPP Windows x64** 배포물을 내려받아 압축 내용 전체를 이 위치에 복사합니다. 특정 BepInEx 빌드 번호를 고정하지 않습니다.
+4. **게임을 처음 실행하기 전에** `BepInEx/config/BepInEx.cfg`를 열고 아래 설정을 적용합니다. 폴더나 파일이 없다면 직접 만드세요. 파일 이름이 `BepInEx.cfg.txt`로 저장되지 않도록 확인하세요.
 
-기존 이름으로 설치된 패키지를 업데이트할 때는 아래 DLL 두 개를 먼저 삭제한 뒤 새 DLL을 설치합니다. BepInEx와 한글패치 캐시는 유지합니다.
+```ini
+[Logging]
+UnityLogListening = false
+
+[Logging.Console]
+Enabled = false
+
+[Logging.Disk]
+WriteUnityLog = false
+```
+
+기존 설정 파일이 있다면 해당 항목 세 개의 값만 바꾸고 다른 설정은 유지하세요. 같은 섹션과 항목을 중복으로 추가할 필요는 없습니다. 이 설정은 아스트랄 파티의 BepInEx 초기화 문제를 피하기 위한 것입니다.
+
+설정을 저장한 뒤 Steam에서 게임을 한 번 실행하고 종료합니다. 최초 실행은 BepInEx의 참조 파일 생성 때문에 시간이 걸릴 수 있습니다.
+
+### 2. 한글패치 플러그인 설치
+
+1. 게임을 종료합니다.
+2. [Releases](https://github.com/maynut02/astral-party-korean-plugin/releases)에서 `AstralPartyKoreanPlugin-v버전.zip`을 내려받아 압축을 풉니다.
+3. 압축에서 꺼낸 `BepInEx` 폴더를 위의 게임 실행 파일이 있는 위치에 복사하고, 기존 폴더와 합칩니다.
+
+글로벌판의 설치 후 파일 위치는 다음과 같습니다. 중국판은 같은 구조를 `8vJXn6CN`에 설치합니다.
+
+```text
+Astral Party/
+└─ 8vJXnINT/
+   ├─ AstralParty_INT.exe
+   └─ BepInEx/
+      ├─ config/
+      │  └─ BepInEx.cfg
+      ├─ patchers/
+      │  └─ AstralPartyKoreanPlugin.dataUnity3dRedirect.dll
+      └─ plugins/
+         └─ AstralPartyKoreanPatch/
+            └─ AstralPartyKoreanPlugin.dll
+```
+
+수동 설치할 때도 위 위치에 DLL 두 개를 모두 넣으세요. Release에 함께 첨부된 `SHA256SUMS.txt`는 ZIP의 무결성 확인용이며 게임 폴더에 복사할 필요는 없습니다.
+
+## 사용 방법
+
+Steam에서 게임을 실행하면 한글패치 확인과 다운로드 진행 창이 표시됩니다. 준비가 끝나면 게임이 시작되고, 게임 내 오버레이에서 게임 버전·리비전과 설치된 패치·최신 패치의 버전, 적용 상태를 확인할 수 있습니다.
+
+오버레이는 닫기 버튼이나 Esc로 닫습니다. 창을 닫아도 한글패치는 계속 적용되며, 다음 게임 실행에서 다시 표시됩니다.
+
+번역 리소스는 [한글패치 리소스 저장소](https://github.com/maynut02/astral-party-korean-patch/releases)에서 자동으로 가져옵니다. 오버레이의 패치 버전은 번역 리소스의 버전이며, 플러그인 자체의 버전과 별도로 관리합니다. 업데이트 확인에 실패하면 현재 게임과 호환되는 검증된 캐시를 사용합니다. 유효한 캐시도 없으면 원본 리소스로 실행합니다.
+
+## 업데이트와 제거
+
+플러그인을 업데이트할 때는 게임을 종료한 뒤 새 ZIP의 DLL 두 개를 같은 위치에 교체하세요. 기존에 아래 이름의 DLL을 설치했다면 먼저 삭제합니다.
 
 - `BepInEx/patchers/AstralParty.DataUnity3dRedirect.dll`
 - `BepInEx/plugins/AstralPartyKoreanPatch/AstralParty.AddressablesInProcessPatch.dll`
 
-새 DLL 이름은 `AstralPartyKoreanPlugin.dataUnity3dRedirect.dll`과 `AstralPartyKoreanPlugin.dll`입니다. 제거할 때는 한글패치 DLL 두 개와 `BepInEx/AstralPartyKoreanPatch` 캐시만 삭제하세요.
+최신 이름의 DLL은 각각 한 개만 유지하세요. 업데이트 시 `BepInEx/AstralPartyKoreanPatch`의 리소스 캐시는 그대로 사용할 수 있습니다.
 
-## 구성
+플러그인을 제거하려면 게임을 종료하고 설치한 DLL 두 개를 삭제하세요. 내려받은 리소스까지 제거하려면 `BepInEx/AstralPartyKoreanPatch` 폴더도 삭제합니다. 게임 원본 파일은 플러그인이 덮어쓰지 않으므로 제거를 위해 다시 복원할 필요가 없습니다.
 
-- `src/Preloader/` — 실행 전 릴리스 확인·다운로드·검증과 `data.unity3d` 접근 전환
-- `src/Plugin/` — 같은 실행에서 Addressables payload 연결과 상태 오버레이 표시
-- `scripts/` — 참조 준비, DLL 빌드, 플러그인 ZIP 생성
-- `tests/` — 소스 회귀 확인과 실제 ZIP 구성·체크섬 검사
-- `.github/workflows/` — 소스 구조와 버전·릴리스 스크립트 검사 CI
+## 문제가 생겼을 때
+
+- **한국어가 적용되지 않음:** DLL 두 개의 설치 위치와 BepInEx 초기 설정을 확인하세요. 처음 준비할 때는 인터넷 연결이 필요합니다.
+- **시작에 시간이 오래 걸림:** 최초 BepInEx 초기화나 패치 다운로드 중일 수 있습니다. 진행 창과 로그에서 현재 상태를 확인하세요.
+- **원본 리소스 사용으로 표시됨:** 설치된 게임과 패치의 호환 정보가 맞지 않거나 준비에 실패했을 수 있습니다. 게임 버전과 로그를 확인하세요.
+- **`dobby.dll` 관련 오류:** `BepInEx/core/dobby.dll`이 있는지 확인하고, BepInEx의 Unity IL2CPP Windows x64 배포물이 정상적으로 설치됐는지 확인하세요.
+
+해결되지 않으면 [Issues](https://github.com/maynut02/astral-party-korean-plugin/issues)에 플러그인 버전, 글로벌판·중국판 여부, 게임 버전, 재현 방법과 아래 로그의 관련 내용을 알려주세요. 공개 전에 개인 경로는 가려주세요.
+
+- `BepInEx/data-redirect.log` — 시작 시 리소스 확인·다운로드·검증
+- `BepInEx/AstralPartyKoreanPatch/addressables-patch.jsonl` — 게임 내 리소스 연결과 적용 상태
+- `BepInEx/LogOutput.txt` — BepInEx와 플러그인 로딩
 
 ## 빌드
 
-.NET **6.0.428 SDK**, PowerShell 7이 필요합니다. BepInEx 6 Unity IL2CPP Windows x64 계열이 설치된 실제 게임을 한 번 실행해 `BepInEx/core`와 `BepInEx/interop`를 준비합니다.
+Windows에서 PowerShell 7, .NET SDK 6.0.428, Git과 BepInEx가 초기화된 게임을 준비합니다. 저장소 루트에서 참조 DLL을 복사합니다.
 
 ```powershell
-./scripts/setup.ps1           # 로컬 게임에서 빌드 참조 복사
-./scripts/build.ps1           # 두 플러그인 DLL 생성
-./scripts/package-release.ps1 # 소스 빌드 후 ZIP·메타데이터·체크섬 생성
+.\scripts\setup.ps1
 ```
 
-기본 게임 경로는 `C:\Program Files (x86)\Steam\steamapps\common\Astral Party\8vJXnINT`입니다. 중국판이나 다른 설치 위치는 `setup.ps1 -GameRoot <게임 경로>`로 지정합니다. `setup.ps1`은 초기화된 게임의 `BepInEx/core`와 `BepInEx/interop`에서 필요한 참조 DLL만 `.work/refs`로 복사합니다. UnityEngine.UI도 실제 interop 참조를 사용합니다.
-
-`build.ps1`과 `package-release.ps1`은 캐시 참조를 자동 사용하며, `-GameRoot` 또는 `-RefsRoot`를 받습니다. `-GameRoot`를 직접 지정하면 해당 게임에서 참조를 갱신합니다. `-RefsRoot`에는 `core/`와 `interop/`가 바로 아래에 있는 BepInEx 폴더 또는 참조 캐시를 지정합니다. 게임이나 BepInEx가 바뀌면 `setup.ps1 -GameRoot <게임 경로>`로 캐시를 갱신합니다. 참조는 배포에 포함되지 않습니다.
-
-`Directory.Build.props`는 두 DLL 프로젝트에 자동 적용되는 공통 MSBuild 설정입니다. 명시한 `AstralRefsRoot`, 로컬 `.work/refs`, 게임의 `BepInEx` 폴더 순으로 참조 경로를 선택합니다. BepInEx 버전을 고정하거나 런타임을 패키지에 넣는 설정은 아닙니다.
-
-버전은 `VERSION`을 기준으로 하며 `-Version 2.0.1`로 지정할 수도 있습니다. 별도 SDK를 사용하려면 `-DotNetPath /path/to/dotnet`을 지정합니다.
-
-```text
-dist/
-├─ AstralPartyKoreanPlugin.dataUnity3dRedirect.dll
-├─ AstralPartyKoreanPlugin.dll
-├─ AstralPartyKoreanPlugin-v2.0.0.zip
-├─ windows-plugin-build.json
-├─ build-references.json
-└─ SHA256SUMS.txt
-```
-
-ZIP에는 `BepInEx/` 아래의 DLL 두 개만 포함합니다.
-
-```text
-BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll
-BepInEx/plugins/AstralPartyKoreanPatch/AstralPartyKoreanPlugin.dll
-```
-
-## 검증과 로컬 릴리스
+DLL만 만들려면 `build.ps1`, DLL·ZIP·체크섬을 함께 만들려면 `package-release.ps1`을 실행합니다. 필요한 명령 하나를 선택하세요.
 
 ```powershell
-python -m pip install pytest
-python -m pytest tests
-./tests/scripts/ProjectVersionTests.ps1
-./tests/scripts/ReferenceFilesTests.ps1
-./tests/scripts/ReleasePreparationTests.ps1
-./tests/scripts/ReleaseUploadTests.ps1
+.\scripts\build.ps1             # DLL 두 개 생성
+.\scripts\package-release.ps1   # 소스 빌드 후 릴리즈 파일 생성
 ```
 
-배포 패키지와 실제 DLL 빌드 검증은 로컬에서 수행합니다. GitHub Actions는 게임 설치 없이 소스 구조와 버전·릴리스 스크립트만 검사합니다.
+결과는 `dist/`에 생성됩니다. 버전은 `VERSION` 파일을 기준으로 합니다. 참조 경로와 SDK 설정, 검사 명령은 [개발 환경과 검증](docs/development.md)에 있습니다.
 
-소스와 `VERSION`을 커밋하여 `origin`에 push한 뒤, 로컬에서 아래 명령을 실행합니다. 최초 한 번 GitHub 원격 저장소를 `origin`에 연결하고 `gh auth login`을 마쳐야 합니다.
+소스와 `VERSION`을 커밋하여 `origin`에 push하고, GitHub CLI 설치와 최초 `gh auth login`을 마친 뒤 로컬 패키지를 업로드합니다.
 
 ```powershell
-./scripts/package-release.ps1         # 로컬 빌드와 ZIP 생성
-./scripts/upload-release.ps1 -Preview # 업로드 계획 확인(GitHub 호출 없음)
-./scripts/upload-release.ps1          # 기존 ZIP과 체크섬을 Release에 등록
+.\scripts\upload-release.ps1 -Preview  # GitHub 호출 없이 로컬 계획 확인
+.\scripts\upload-release.ps1           # 기존 ZIP과 체크섬 업로드 및 공개
 ```
 
-`upload-release.ps1`은 빌드하지 않으며 `dist/`의 ZIP과 `SHA256SUMS.txt`만 첨부합니다. 버전과 태그는 `VERSION`의 `vX.Y.Z`를 사용합니다. 새 Release를 draft로 만든 뒤 첨부가 완료되면 공개하며, `-Draft`로 draft를 유지할 수 있습니다. 같은 파일로 재시도하면 이미 올라간 파일은 건너뜁니다.
+업로드 명령은 `dist/`의 ZIP과 `SHA256SUMS.txt`만 첨부합니다. 버전 준비와 옵션, 재시도 절차는 [릴리즈 문서](docs/releases.md#4-github-release에-업로드)를 참고하세요.
 
-버전 증가와 릴리스 설명 초안은 `prepare-release.ps1 -Bump patch`로 준비할 수 있습니다. 첫 릴리스는 현재 `VERSION`인 2.0.0을 사용합니다. 자세한 순서와 옵션은 [로컬 릴리스 안내](docs/releases.md)에 있습니다.
+- [개발 환경과 검증](docs/development.md)
+- [로컬 빌드와 릴리즈](docs/releases.md)
+- [코드 구조와 리소스 적용](docs/architecture.md)
 
 ## 라이선스
 
-[MIT License](LICENSE)
+소스 코드와 문서는 [MIT 라이선스](LICENSE)로 배포합니다. 게임과 외부 의존성에는 각각의 라이선스가 적용됩니다.
