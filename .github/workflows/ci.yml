@@ -1,0 +1,41 @@
+name: Checks
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  checks:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 6.0.x
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest pyyaml
+      - name: Check source build
+        run: ./scripts/build.ps1 -Version 0.0.0
+      - run: python -m pytest tests
+      - name: Check project version
+        run: ./tests/scripts/ProjectVersionTests.ps1
+      - name: Check local release preparation
+        run: ./tests/scripts/ReleasePreparationTests.ps1
+      - name: Check local release uploader with mock GitHub CLI
+        run: ./tests/scripts/ReleaseUploadTests.ps1
