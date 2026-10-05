@@ -23,16 +23,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: 6.0.x
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: python -m pip install pytest pyyaml
-      - name: Check source build
-        run: ./scripts/build.ps1 -Version 0.0.0
+      - run: python -m pip install pytest
       - run: python -m pytest tests
+      - name: Check local reference synchronization
+        run: ./tests/scripts/ReferenceFilesTests.ps1
       - name: Check project version
         run: ./tests/scripts/ProjectVersionTests.ps1
       - name: Check local release preparation

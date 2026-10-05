@@ -45,19 +45,16 @@ def test_package_metadata_and_checksum_match_actual_zip(package) -> None:
     assert (ROOT / "dist/SHA256SUMS.txt").read_text(encoding="utf-8").strip() == f"{digest}  {path.name}"
 
 
-def test_build_cache_contains_only_compile_references() -> None:
-    deps = ROOT / ".work/deps"
-    if not deps.exists():
-        pytest.skip("Run scripts/setup.ps1 to verify extracted references")
-    assert {path.relative_to(deps).as_posix() for path in deps.rglob("*") if path.is_file()} == {
-        "bepinex/BepInEx/core/BepInEx.Core.dll",
-        "bepinex/BepInEx/core/BepInEx.Preloader.Core.dll",
-        "bepinex/BepInEx/core/BepInEx.Unity.IL2CPP.dll",
-        "bepinex/BepInEx/core/0Harmony.dll",
-        "bepinex/BepInEx/core/Il2CppInterop.Runtime.dll",
-        "unity/UnityEngine.CoreModule.dll",
-        "unity/UnityEngine.TextRenderingModule.dll",
-        "unity/UnityEngine.AssetBundleModule.dll",
-        "unity/UnityEngine.UIModule.dll",
-        "unity/UnityEngine.InputLegacyModule.dll",
-    }
+def test_build_cache_contains_only_local_compile_references() -> None:
+    refs = ROOT / ".work/refs"
+    if not refs.exists():
+        pytest.skip("Run scripts/setup.ps1 to verify copied references")
+    versions = json.loads((refs / "versions.json").read_text(encoding="utf-8"))["references"]
+    copied = {path.relative_to(refs).as_posix() for path in refs.rglob("*.dll")}
+    assert copied == {entry["file"] for entry in versions}
+    assert all(name.startswith(("core/", "interop/")) for name in copied)
+    assert "core/dobby.dll" not in copied
+    assert "winhttp.dll" not in copied
+    for entry in versions:
+        assert hashlib.sha256((refs / entry["file"]).read_bytes()).hexdigest() == entry["sha256"]
+        assert entry["assemblyVersion"]

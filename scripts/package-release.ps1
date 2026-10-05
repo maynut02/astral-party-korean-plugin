@@ -1,5 +1,7 @@
 param(
     [string]$Version = '',
+    [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\Astral Party\8vJXnINT',
+    [string]$RefsRoot = '',
     [string]$WorkRoot = '',
     [string]$OutputRoot = '',
     [string]$DotNetPath = ''
@@ -10,7 +12,9 @@ $pluginRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not $Version) { $Version = (Get-Content -LiteralPath (Join-Path $pluginRoot 'VERSION') -Raw).Trim() }
 if (-not $OutputRoot) { $OutputRoot = Join-Path $pluginRoot 'dist' }
 $dist = [IO.Path]::GetFullPath($OutputRoot)
-& (Join-Path $PSScriptRoot 'build.ps1') -Version $Version -WorkRoot $WorkRoot -OutputRoot $dist -DotNetPath $DotNetPath
+$buildArguments = @{ Version = $Version; RefsRoot = $RefsRoot; WorkRoot = $WorkRoot; OutputRoot = $dist; DotNetPath = $DotNetPath }
+if ($PSBoundParameters.ContainsKey('GameRoot')) { $buildArguments.GameRoot = $GameRoot }
+& (Join-Path $PSScriptRoot 'build.ps1') @buildArguments
 
 $files = [ordered]@{
     'BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll' = (Join-Path $dist 'AstralPartyKoreanPlugin.dataUnity3dRedirect.dll')
@@ -35,8 +39,7 @@ $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerIn
 $metadata = [ordered]@{
     schemaVersion = 1
     packageVersion = $Version
-    bepinexVersion = '6.0.0-be.788+5b766a3'
-    unityReferenceVersion = '2022.3.62'
+    buildReferences = @((Get-Content -LiteralPath (Join-Path $dist 'build-references.json') -Raw -Encoding utf8 | ConvertFrom-Json).references)
     includesBepInExRuntime = $false
     package = [ordered]@{
         file = [IO.Path]::GetFileName($zipPath)

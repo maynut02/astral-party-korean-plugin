@@ -1,6 +1,6 @@
 # 로컬 빌드와 GitHub Release
 
-소스 빌드와 ZIP 생성은 로컬에서 수행합니다. `upload-release.ps1`은 이미 만든 ZIP과 체크섬을 GitHub Release에 등록합니다. GitHub Actions는 검사만 수행합니다.
+소스 빌드와 ZIP 생성은 로컬에서 수행합니다. `upload-release.ps1`은 이미 만든 ZIP과 체크섬을 GitHub Release에 등록합니다. GitHub Actions는 게임 설치 없이 소스 구조와 버전·릴리스 스크립트만 검사하며, 실제 DLL 빌드 검증은 로컬에서 수행합니다.
 
 ## 최초 설정
 
@@ -10,6 +10,16 @@ PowerShell 7, .NET SDK 6.0.428, Git, GitHub CLI가 필요합니다. GitHub에 �
 git remote add origin <GitHub-저장소-주소>
 gh auth login
 ```
+
+BepInEx 6 Unity IL2CPP Windows x64 계열을 설치한 실제 게임을 한 번 실행해 `BepInEx/core`와 `BepInEx/interop`를 준비합니다. 특정 BepInEx 빌드 번호는 요구하지 않습니다. 기본 게임 경로는 `C:\Program Files (x86)\Steam\steamapps\common\Astral Party\8vJXnINT`이며, 중국판이나 다른 설치 위치는 `-GameRoot`로 지정합니다.
+
+```powershell
+./scripts/setup.ps1
+# 다른 설치 위치의 참조 준비·갱신
+./scripts/setup.ps1 -GameRoot 'D:\SteamLibrary\steamapps\common\Astral Party\8vJXn6CN'
+```
+
+`setup.ps1 -GameRoot <게임 경로>`는 게임에서 필요한 참조 DLL만 `.work/refs`로 복사합니다. 게임이나 BepInEx가 바뀌면 같은 명령으로 캐시를 갱신합니다.
 
 소스와 `VERSION`을 커밋한 뒤 `origin`에 push합니다. 빌드에 사용한 커밋과 업로드에 사용하는 HEAD가 같아야 합니다. 업로드 스크립트는 자동으로 소스를 커밋하거나 push하지 않습니다.
 
@@ -44,6 +54,8 @@ git push origin main
 ./scripts/upload-release.ps1 -Preview
 ./scripts/upload-release.ps1
 ```
+
+`build.ps1`과 `package-release.ps1`은 캐시 참조를 자동 사용하며 `-GameRoot` 또는 `-RefsRoot`를 받습니다. `-RefsRoot`에는 `BepInEx/core`와 `BepInEx/interop`를 담은 참조 루트를 지정합니다. 별도 SDK는 `-DotNetPath /path/to/dotnet`으로 지정합니다.
 
 ZIP에는 아래 두 파일만 포함합니다. 최상위는 `BepInEx/`이며 문서·라이선스·BepInEx 런타임·참조 DLL은 넣지 않습니다. 설치 안내와 라이선스는 저장소에서 확인합니다.
 

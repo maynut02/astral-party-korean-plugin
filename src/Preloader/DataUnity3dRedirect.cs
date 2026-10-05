@@ -32,8 +32,6 @@ public sealed class DataUnity3dRedirect : BasePatcher
 
     private static string route = string.Empty;
     private static string manifestAssetName = string.Empty;
-    private static string? gameRootPath;
-    private static string? patchRootPath;
     private static string? sourcePath;
     private static string? replacementPath;
     private static string? legacyReplacementPath;
@@ -89,9 +87,7 @@ public sealed class DataUnity3dRedirect : BasePatcher
             var routeLayout = DetectSteamRoute(gameRoot, processName);
             route = routeLayout.Route;
             manifestAssetName = route + "_manifest.json";
-            gameRootPath = gameRoot;
             var patchRoot = Path.Combine(gameRoot, "BepInEx", "AstralPartyKoreanPatch");
-            patchRootPath = patchRoot;
             var legacyPluginRoot = Path.Combine(gameRoot, "BepInEx", "plugins", "AstralPartyKoreanPatch");
 
             sourcePath = Path.GetFullPath(Path.Combine(gameRoot, routeLayout.DataDirectory, "data.unity3d"));
@@ -1407,7 +1403,6 @@ public sealed class DataUnity3dRedirect : BasePatcher
         private IntPtr window;
         private WindowProcDelegate? windowProc;
         private IntPtr originalWindowProc;
-        private IntPtr titleLabel;
         private IntPtr statusLabel;
         private IntPtr detailLabel;
         private IntPtr progressBar;
@@ -1654,7 +1649,6 @@ public sealed class DataUnity3dRedirect : BasePatcher
                     if (closed) return;
                     uiThreadId = GetCurrentThreadId();
                     window = parent;
-                    titleLabel = title;
                     statusLabel = statusHandle;
                     detailLabel = detailHandle;
                     progressBar = progressHandle;
@@ -1683,7 +1677,6 @@ public sealed class DataUnity3dRedirect : BasePatcher
                 lock (sync)
                 {
                     window = IntPtr.Zero;
-                    titleLabel = IntPtr.Zero;
                     statusLabel = IntPtr.Zero;
                     detailLabel = IntPtr.Zero;
                     progressBar = IntPtr.Zero;

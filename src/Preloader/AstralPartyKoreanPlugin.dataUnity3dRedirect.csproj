@@ -14,11 +14,11 @@
   <ItemGroup>
     <Compile Include="$(AstralBuildVersionSource)" Link="AstralBuildVersion.g.cs" Condition="'$(AstralBuildVersionSource)' != '' and Exists('$(AstralBuildVersionSource)')" />
     <Reference Include="BepInEx.Core">
-      <HintPath>$(AstralDepsRoot)/bepinex/BepInEx/core/BepInEx.Core.dll</HintPath>
+      <HintPath>$(AstralBepInExRoot)/core/BepInEx.Core.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="BepInEx.Preloader.Core">
-      <HintPath>$(AstralDepsRoot)/bepinex/BepInEx/core/BepInEx.Preloader.Core.dll</HintPath>
+      <HintPath>$(AstralBepInExRoot)/core/BepInEx.Preloader.Core.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

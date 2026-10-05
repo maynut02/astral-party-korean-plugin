@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -48,7 +47,6 @@ public sealed class AddressablesInProcessPatch : BasePlugin
     private static string UiInstalledVersion = "확인 중";
     private static string UiGameVersion = "-";
     private static string UiStatus = "플러그인 시작 중";
-    private static string UiDetail = "릴리스 정보를 확인하고 있습니다.";
     private static readonly HashSet<string> ConnectedEntries =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private static string ActiveRoute = string.Empty;
@@ -169,7 +167,7 @@ public sealed class AddressablesInProcessPatch : BasePlugin
             // Addressables main-thread callback. It uses only built-in Unity
             // UI components; no plugin-defined MonoBehaviour is injected.
             Event("OVERLAY_PENDING", "built-in UI overlay will initialize on the first Addressables callback");
-            SetUi("패치 파일 확인 중", "Preloader가 준비한 로컬 패치 파일을 확인하고 있습니다.", null, null, null);
+            SetUi("패치 파일 확인 중", null, null, null);
             Event("STARTING", "repo=" + Repository + ",route=preloader-session,source=preloader-cache");
             Log.LogInfo("Astral Party Korean Addressables patch loaded; local payload preparation started");
         }
@@ -353,15 +351,14 @@ public sealed class AddressablesInProcessPatch : BasePlugin
                     out var sessionCatalogHash))
                 throw new InvalidDataException("preloader did not provide a complete verified patch cache");
 
-            SetUi("패치 정보 확인 완료", "Preloader가 준비한 최신 패치를 사용합니다.",
-                releaseTag, null, null);
+            SetUi("패치 정보 확인 완료", releaseTag, null, null);
             Event("PRELOADER_MANIFEST_HIT", "tag=" + releaseTag + ",sha256=" + manifestSha256);
 
             var manifest = ParseManifest(manifestBytes, sessionRoute);
             if (!string.Equals(manifest.GameVersion, sessionGameVersion, StringComparison.Ordinal) ||
                 !string.Equals(manifest.CatalogHash, sessionCatalogHash, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("preloader session game identity does not match manifest");
-            SetUi("패치 파일 확인 중", "로컬 Addressables payload를 연결합니다.",
+            SetUi("패치 파일 확인 중",
                 manifest.PatchVersion, null, manifest.GameVersion + " / revision " + manifest.Revision);
             var payloadRoot = Path.Combine(root, PayloadDirectoryName);
             var prepared = new List<PayloadEntry>();
@@ -402,7 +399,7 @@ public sealed class AddressablesInProcessPatch : BasePlugin
             Event("RELEASE_READY", "route=" + sessionRoute + ",tag=" + manifest.PatchVersion + ",game=" +
                   manifest.GameVersion + "/" + manifest.Revision + ",catalog=" +
                   manifest.CatalogHash + ",entries=" + prepared.Count + ",source=preloader-cache");
-            SetUi("한글패치 준비 완료", "Preloader가 준비한 로컬 번들을 사용합니다.",
+            SetUi("한글패치 준비 완료",
                 manifest.PatchVersion, manifest.PatchVersion,
                 manifest.GameVersion + " / revision " + manifest.Revision);
             Volatile.Write(ref PreparationState, 1);
@@ -410,7 +407,7 @@ public sealed class AddressablesInProcessPatch : BasePlugin
         catch (Exception ex)
         {
             Volatile.Write(ref PreparationState, 2);
-            SetUi("원본 리소스 사용", "Preloader 패치 준비 실패: " + ex.Message, null, null, null);
+            SetUi("원본 리소스 사용", null, null, null);
             Event("RELEASE_FAILED", ex.GetType().Name + ":" + ex.Message);
             try { BepInEx.Logging.Logger.CreateLogSource(PluginName).LogError(ex); }
             catch { }
@@ -464,8 +461,8 @@ public sealed class AddressablesInProcessPatch : BasePlugin
                 var payloadSize = RequiredLong(file, "size");
                 if (downloadSize <= 0 || downloadSize > TransportLimit || payloadSize <= 0)
                     throw new InvalidDataException("invalid manifest size for " + path);
-                parsed.Add(new ManifestFile(RequiredString(file, "target"), path, url,
-                    downloadSha, downloadSize, payloadSha, payloadSize));
+                parsed.Add(new ManifestFile(RequiredString(file, "target"), path,
+                    payloadSha, payloadSize));
             }
 
             return new ReleaseManifest(patchVersion, version, revision, catalogHash,
@@ -527,9 +524,9 @@ public sealed class AddressablesInProcessPatch : BasePlugin
                 totalEntries = Entries.Count;
             }
             if (connectedCount >= totalEntries && totalEntries > 0)
-                SetUi("패치 리소스 연결 완료", "한글패치 리소스가 게임에 연결되었습니다.", null, null, null);
+                SetUi("패치 리소스 연결 완료", null, null, null);
             else
-                SetUi("패치 리소스 연결 중", "한글패치 리소스를 게임에 연결하고 있습니다.", null, null, null);
+                SetUi("패치 리소스 연결 중", null, null, null);
             OverlayUi.TryRefresh();
             Event("REDIRECTED", identity + " path=" + entry.PayloadPath +
                 " connected=" + connectedCount + "/" + totalEntries);
@@ -583,7 +580,7 @@ public sealed class AddressablesInProcessPatch : BasePlugin
                 ConnectedEntries.Clear();
             }
             Volatile.Write(ref PreparationState, 2);
-            SetUi("원본 리소스 사용", "게임 리소스가 변경되어 한글패치를 적용하지 않습니다.", null, null, null);
+            SetUi("원본 리소스 사용", null, null, null);
             Event("RUNTIME_COMPATIBILITY_FAILED", reason);
             OverlayUi.TryRefresh();
         }
@@ -853,13 +850,12 @@ public sealed class AddressablesInProcessPatch : BasePlugin
             .Replace("\r", "\\r").Replace("\n", "\\n");
     }
 
-    private static void SetUi(string? status, string? detail, string? latestVersion,
+    private static void SetUi(string? status, string? latestVersion,
         string? installedVersion, string? gameVersion)
     {
         lock (UiSync)
         {
             if (status != null) UiStatus = status;
-            if (detail != null) UiDetail = detail;
             if (latestVersion != null) UiLatestVersion = latestVersion;
             if (installedVersion != null) UiInstalledVersion = installedVersion;
             if (gameVersion != null) UiGameVersion = gameVersion;
@@ -876,7 +872,6 @@ public sealed class AddressablesInProcessPatch : BasePlugin
             var state = stateDocument.RootElement;
             var route = StateString(state, "Route", "route");
             var manifestSha = StateString(state, "ManifestSha256", "manifestSha256");
-            var releaseTag = StateString(state, "ReleaseTag", "releaseTag");
             if (!IsSupportedRoute(route)) return;
             ValidateHex(manifestSha, 64, "cached manifest sha256");
             var path = Path.Combine(root, "releases", manifestSha.ToLowerInvariant(), "manifest.json");
@@ -884,7 +879,7 @@ public sealed class AddressablesInProcessPatch : BasePlugin
             var raw = File.ReadAllBytes(path);
             if (!string.Equals(Sha256(raw), manifestSha, StringComparison.OrdinalIgnoreCase)) return;
             var manifest = ParseManifest(raw, route);
-            SetUi("캐시된 패치 확인 중", "저장된 패치: " + manifest.PatchVersion,
+            SetUi("캐시된 패치 확인 중",
                 manifest.PatchVersion, manifest.PatchVersion,
                 manifest.GameVersion + " / revision " + manifest.Revision);
         }
@@ -899,7 +894,7 @@ public sealed class AddressablesInProcessPatch : BasePlugin
         lock (UiSync)
         {
             return new UiSnapshot(UiLatestVersion, UiInstalledVersion, UiGameVersion,
-                UiStatus, UiDetail);
+                UiStatus);
         }
     }
 
@@ -909,16 +904,14 @@ public sealed class AddressablesInProcessPatch : BasePlugin
         public readonly string InstalledVersion;
         public readonly string GameVersion;
         public readonly string Status;
-        public readonly string Detail;
 
         public UiSnapshot(string latestVersion, string installedVersion, string gameVersion,
-            string status, string detail)
+            string status)
         {
             LatestVersion = latestVersion;
             InstalledVersion = installedVersion;
             GameVersion = gameVersion;
             Status = status;
-            Detail = detail;
         }
     }
 
@@ -943,17 +936,12 @@ public sealed class AddressablesInProcessPatch : BasePlugin
     {
         public readonly string Target;
         public readonly string Path;
-        public readonly string DownloadUrl;
-        public readonly string DownloadSha256;
-        public readonly long DownloadSize;
         public readonly string PayloadSha256;
         public readonly long PayloadSize;
 
-        public ManifestFile(string target, string path, string downloadUrl, string downloadSha256,
-            long downloadSize, string payloadSha256, long payloadSize)
+        public ManifestFile(string target, string path, string payloadSha256, long payloadSize)
         {
-            Target = target; Path = path; DownloadUrl = downloadUrl; DownloadSha256 = downloadSha256;
-            DownloadSize = downloadSize; PayloadSha256 = payloadSha256; PayloadSize = payloadSize;
+            Target = target; Path = path; PayloadSha256 = payloadSha256; PayloadSize = payloadSize;
         }
     }
 

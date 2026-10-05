@@ -1,5 +1,7 @@
 param(
     [string]$Version = '',
+    [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\Astral Party\8vJXnINT',
+    [string]$RefsRoot = '',
     [string]$WorkRoot = '',
     [string]$OutputRoot = '',
     [string]$DotNetPath = ''
@@ -24,10 +26,19 @@ if (-not $DotNetPath) {
     }
 }
 
-& (Join-Path $PSScriptRoot 'setup.ps1') -WorkRoot $work
-$deps = Join-Path $work 'deps'
+. (Join-Path $PSScriptRoot 'reference-files.ps1')
+if (-not $RefsRoot) {
+    $RefsRoot = Join-Path $work 'refs'
+    if ($PSBoundParameters.ContainsKey('GameRoot') -or -not (Test-Path -LiteralPath (Join-Path $RefsRoot 'core/BepInEx.Core.dll'))) {
+        & (Join-Path $PSScriptRoot 'setup.ps1') -GameRoot $GameRoot -WorkRoot $work
+    }
+}
+$RefsRoot = [IO.Path]::GetFullPath($RefsRoot)
+Assert-AstralReferences $RefsRoot
 $generatedVersionSource = Join-Path $work 'generated/AstralBuildVersion.g.cs'
 New-Item -ItemType Directory -Path (Split-Path -Parent $generatedVersionSource),$dist -Force | Out-Null
+[ordered]@{ references = @(Get-AstralReferenceVersions $RefsRoot) } |
+    ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $dist 'build-references.json') -Encoding utf8NoBOM
 @"
 internal static class AstralBuildVersion
 {
@@ -43,7 +54,7 @@ try {
         'src/Plugin/AstralPartyKoreanPlugin.csproj'
     )) {
         & $DotNetPath build (Join-Path $pluginRoot $project) --configuration Release --nologo `
-            "-p:AstralDepsRoot=$deps" `
+            "-p:AstralRefsRoot=$RefsRoot" `
             "-p:AstralBuildVersionSource=$generatedVersionSource" `
             "-p:Version=$Version" -p:ContinuousIntegrationBuild=true
         if ($LASTEXITCODE -ne 0) { throw "dotnet build failed: $project" }

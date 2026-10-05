@@ -14,41 +14,48 @@
   <ItemGroup>
     <Compile Include="$(AstralBuildVersionSource)" Link="AstralBuildVersion.g.cs" Condition="'$(AstralBuildVersionSource)' != '' and Exists('$(AstralBuildVersionSource)')" />
     <Reference Include="BepInEx.Core">
-      <HintPath>$(AstralDepsRoot)/bepinex/BepInEx/core/BepInEx.Core.dll</HintPath>
+      <HintPath>$(AstralBepInExRoot)/core/BepInEx.Core.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="BepInEx.Unity.IL2CPP">
-      <HintPath>$(AstralDepsRoot)/bepinex/BepInEx/core/BepInEx.Unity.IL2CPP.dll</HintPath>
+      <HintPath>$(AstralBepInExRoot)/core/BepInEx.Unity.IL2CPP.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="0Harmony">
-      <HintPath>$(AstralDepsRoot)/bepinex/BepInEx/core/0Harmony.dll</HintPath>
+      <HintPath>$(AstralBepInExRoot)/core/0Harmony.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Il2CppInterop.Runtime">
-      <HintPath>$(AstralDepsRoot)/bepinex/BepInEx/core/Il2CppInterop.Runtime.dll</HintPath>
+      <HintPath>$(AstralBepInExRoot)/core/Il2CppInterop.Runtime.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
-      <HintPath>$(AstralDepsRoot)/unity/UnityEngine.CoreModule.dll</HintPath>
+      <HintPath>$(AstralBepInExRoot)/interop/UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
-      <HintPath>$(AstralDepsRoot)/unity/UnityEngine.TextRenderingModule.dll</HintPath>
+      <HintPath>$(AstralBepInExRoot)/interop/UnityEngine.TextRenderingModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.AssetBundleModule">
-      <HintPath>$(AstralDepsRoot)/unity/UnityEngine.AssetBundleModule.dll</HintPath>
+      <HintPath>$(AstralBepInExRoot)/interop/UnityEngine.AssetBundleModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.UIModule">
-      <HintPath>$(AstralDepsRoot)/unity/UnityEngine.UIModule.dll</HintPath>
+      <HintPath>$(AstralBepInExRoot)/interop/UnityEngine.UIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">
-      <HintPath>$(AstralDepsRoot)/unity/UnityEngine.InputLegacyModule.dll</HintPath>
+      <HintPath>$(AstralBepInExRoot)/interop/UnityEngine.InputLegacyModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <ProjectReference Include="../UnityEngine.UI.Reference/UnityEngine.UI.Reference.csproj" Private="false" />
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(AstralBepInExRoot)/interop/UnityEngine.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2Cppmscorlib">
+      <HintPath>$(AstralBepInExRoot)/interop/Il2Cppmscorlib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 </Project>
