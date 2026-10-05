@@ -16,21 +16,14 @@ if (-not $WorkRoot) { $WorkRoot = Join-Path $pluginRoot '.work' }
 if (-not $OutputRoot) { $OutputRoot = Join-Path $pluginRoot 'dist' }
 $work = [IO.Path]::GetFullPath($WorkRoot)
 $dist = [IO.Path]::GetFullPath($OutputRoot)
-if (-not $DotNetPath) {
-    $localDotnet = Join-Path $work 'dotnet/dotnet.exe'
-    if (Test-Path -LiteralPath $localDotnet) { $DotNetPath = $localDotnet }
-    else {
-        $command = Get-Command dotnet -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-        if (-not $command) { throw 'Install .NET SDK 6.0.428 or pass -DotNetPath to an existing SDK.' }
-        $DotNetPath = $command.Source
-    }
-}
+. (Join-Path $PSScriptRoot 'dotnet-sdk.ps1')
+$DotNetPath = Get-AstralDotnet -Root $pluginRoot -WorkRoot $work -DotNetPath $DotNetPath
 
 . (Join-Path $PSScriptRoot 'reference-files.ps1')
 if (-not $RefsRoot) {
     $RefsRoot = Join-Path $work 'refs'
     if ($PSBoundParameters.ContainsKey('GameRoot') -or -not (Test-Path -LiteralPath (Join-Path $RefsRoot 'core/BepInEx.Core.dll'))) {
-        & (Join-Path $PSScriptRoot 'setup.ps1') -GameRoot $GameRoot -WorkRoot $work
+        Sync-AstralReferences -GameRoot $GameRoot -WorkRoot $work
     }
 }
 $RefsRoot = [IO.Path]::GetFullPath($RefsRoot)

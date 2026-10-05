@@ -72,17 +72,26 @@ git rev-parse HEAD
 .\scripts\package-release.ps1
 ```
 
-이 명령 하나로 최신 소스를 빌드하고 릴리즈 파일을 생성합니다. 빌드가 실패하면 패키징을 중단합니다. `VERSION`이 `2.0.0`인 경우 결과는 다음과 같습니다.
+이 명령 하나로 최신 소스를 빌드하고 릴리즈 파일을 생성합니다. 내부 빌드는 기본 `dist/`에 최신 DLL 두 개와 `build-references.json`을 생성합니다. 패키징은 이 세 파일을 기본 `dist/release/vX.Y.Z/`에 복사한 뒤 같은 버전 폴더에 ZIP·체크섬·빌드 메타데이터를 생성합니다. 빌드가 실패하면 패키징을 중단합니다. `VERSION`이 `2.0.0`인 경우 결과는 다음과 같습니다.
 
 ```text
 dist/
-├─ AstralPartyKoreanPlugin-v2.0.0.zip
 ├─ AstralPartyKoreanPlugin.dataUnity3dRedirect.dll
 ├─ AstralPartyKoreanPlugin.dll
-├─ SHA256SUMS.txt
 ├─ build-references.json
-└─ windows-plugin-build.json
+└─ release/
+   └─ v2.0.0/
+      ├─ AstralPartyKoreanPlugin.dataUnity3dRedirect.dll
+      ├─ AstralPartyKoreanPlugin.dll
+      ├─ build-references.json
+      ├─ AstralPartyKoreanPlugin-v2.0.0.zip
+      ├─ SHA256SUMS.txt
+      └─ windows-plugin-build.json
 ```
+
+`dist/` 루트의 세 파일은 빌드할 때 최신 결과로 갱신됩니다. 버전 폴더의 여섯 파일은 해당 버전의 릴리즈 산출물이며, 다른 버전을 패키징해도 기존 버전 폴더의 산출물은 유지됩니다. 예를 들어 `2.1.0`을 패키징하면 `dist/release/v2.1.0/`을 사용하고 `dist/release/v2.0.0/`은 그대로 남습니다.
+
+버전은 기본적으로 `VERSION`을 사용하며, `-Version` 옵션으로 직접 지정할 수 있습니다. `-OutputRoot`를 지정하면 그 경로에 릴리즈 파일을 생성하고, 최신 빌드 출력은 `dist/`에 보관합니다. 사용자 지정 릴리즈 폴더에서 업로드하려면 같은 경로를 업로더의 `-AssetRoot`에 지정하세요. 정식 업로드 버전은 `VERSION`과 같아야 합니다.
 
 ZIP의 최상위는 `BepInEx/`이며 아래 DLL 두 개만 포함합니다.
 
@@ -116,7 +125,7 @@ gh auth login
 
 `-Preview`는 저장소·태그·소스 커밋·첨부 파일·설명의 로컬 계획을 출력합니다. GitHub를 호출하지 않으므로 원격 Release 상태는 실제 업로드 시 확인합니다.
 
-업로드 명령은 이미 생성한 `dist/`의 ZIP과 `SHA256SUMS.txt`를 사용합니다. 기본 태그와 제목은 `VERSION`의 `vX.Y.Z`입니다. 준비된 설명 파일이 있으면 그 내용을 사용하고, 없으면 GitHub가 설명을 생성합니다. 게시 전에 사용할 설명을 검토하세요.
+업로드 명령은 이미 생성한 `dist/release/vX.Y.Z/`의 ZIP과 `SHA256SUMS.txt`를 사용합니다. 기본 `-AssetRoot`와 태그·제목의 버전은 `VERSION`에서 읽으며, `VERSION`이 `2.0.0`이면 `dist/release/v2.0.0/`을 사용합니다. 준비된 설명 파일이 있으면 그 내용을 사용하고, 없으면 GitHub가 설명을 생성합니다. 게시 전에 사용할 설명을 검토하세요.
 
 새 Release는 draft로 생성하고 두 파일의 업로드가 완료되면 공개합니다. draft로 유지하려면 다음과 같이 실행합니다.
 
@@ -127,7 +136,7 @@ gh auth login
 | 옵션 | 기본값과 동작 |
 | --- | --- |
 | `-Tag` | `VERSION`의 `vX.Y.Z`; 지정할 때도 같은 버전이어야 함 |
-| `-AssetRoot` | `dist`; 업로드할 ZIP과 체크섬이 있는 폴더 |
+| `-AssetRoot` | `VERSION`에서 정한 `dist/release/vX.Y.Z/`; 업로드할 ZIP과 체크섬이 있는 폴더 |
 | `-NotesFile` | `.work/releases/vX.Y.Z/release-notes.md`; 생략 시 준비된 파일 또는 자동 생성 설명 사용 |
 | `-Draft` | 새 Release와 기존 draft를 공개하지 않음 |
 | `-Preview` | GitHub 호출 없이 로컬 계획만 출력 |

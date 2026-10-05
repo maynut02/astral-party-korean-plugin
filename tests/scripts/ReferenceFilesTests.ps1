@@ -15,7 +15,7 @@ try {
         New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
         Copy-Item -LiteralPath $sampleAssembly -Destination $path
     }
-    & (Join-Path $root 'scripts/setup.ps1') -GameRoot $gameRoot -WorkRoot $workRoot | Out-Null
+    Sync-AstralReferences -GameRoot $gameRoot -WorkRoot $workRoot | Out-Null
     $refs = Join-Path $workRoot 'refs'
     $record = Get-Content -LiteralPath (Join-Path $refs 'versions.json') -Raw | ConvertFrom-Json
     if ($record.references.Count -ne $relativePaths.Count) { throw 'Reference inventory is incomplete.' }
@@ -32,7 +32,7 @@ try {
     $before = (Get-FileHash -LiteralPath $cached).Hash
     Remove-Item -LiteralPath (Join-Path $sourceRoot $relativePaths[-1])
     $rejected = $false
-    try { & (Join-Path $root 'scripts/setup.ps1') -GameRoot $gameRoot -WorkRoot $workRoot | Out-Null }
+    try { Sync-AstralReferences -GameRoot $gameRoot -WorkRoot $workRoot | Out-Null }
     catch {
         if ($_.Exception.Message -notlike '*Missing build reference:*') { throw }
         $rejected = $true

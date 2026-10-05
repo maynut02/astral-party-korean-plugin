@@ -57,7 +57,7 @@ if (-not $match.Success) { throw 'origin must identify a github.com repository u
 $repository = $match.Groups['repository'].Value
 $selector = "github.com/$repository"
 
-if (-not $AssetRoot) { $AssetRoot = Join-Path $repoRoot 'dist' }
+if (-not $AssetRoot) { $AssetRoot = Join-Path $repoRoot "dist/release/$Tag" }
 $AssetRoot = [IO.Path]::GetFullPath($AssetRoot)
 $zipName = "AstralPartyKoreanPlugin-$Tag.zip"
 $names = @($zipName, 'SHA256SUMS.txt')

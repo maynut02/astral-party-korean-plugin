@@ -9,12 +9,22 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $pluginRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-if (-not $Version) { $Version = (Get-Content -LiteralPath (Join-Path $pluginRoot 'VERSION') -Raw).Trim() }
-if (-not $OutputRoot) { $OutputRoot = Join-Path $pluginRoot 'dist' }
+. (Join-Path $PSScriptRoot 'project-version.ps1')
+if (-not $Version) { $Version = Get-AstralProjectVersion -Root $pluginRoot }
+else { $Version = ConvertTo-AstralVersion $Version }
+$buildRoot = Join-Path $pluginRoot 'dist'
+if (-not $OutputRoot) { $OutputRoot = Join-Path $buildRoot "release/v$Version" }
 $dist = [IO.Path]::GetFullPath($OutputRoot)
-$buildArguments = @{ Version = $Version; RefsRoot = $RefsRoot; WorkRoot = $WorkRoot; OutputRoot = $dist; DotNetPath = $DotNetPath }
+$buildArguments = @{ Version = $Version; RefsRoot = $RefsRoot; WorkRoot = $WorkRoot; OutputRoot = $buildRoot; DotNetPath = $DotNetPath }
 if ($PSBoundParameters.ContainsKey('GameRoot')) { $buildArguments.GameRoot = $GameRoot }
 & (Join-Path $PSScriptRoot 'build.ps1') @buildArguments
+
+New-Item -ItemType Directory -Path $dist -Force | Out-Null
+if ($dist.TrimEnd([IO.Path]::DirectorySeparatorChar) -ine $buildRoot.TrimEnd([IO.Path]::DirectorySeparatorChar)) {
+    foreach ($name in @('AstralPartyKoreanPlugin.dataUnity3dRedirect.dll', 'AstralPartyKoreanPlugin.dll', 'build-references.json')) {
+        Copy-Item -LiteralPath (Join-Path $buildRoot $name) -Destination (Join-Path $dist $name) -Force
+    }
+}
 
 $files = [ordered]@{
     'BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll' = (Join-Path $dist 'AstralPartyKoreanPlugin.dataUnity3dRedirect.dll')

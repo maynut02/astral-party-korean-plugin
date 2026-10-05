@@ -9,12 +9,16 @@
 | `src/Preloader/DataUnity3dRedirect.cs` | 리소스 릴리즈 확인, 다운로드·검증, 캐시와 session 기록, `data.unity3d` 접근 전환, 시작 진행 창 |
 | `src/Plugin/AddressablesInProcessPatch.cs` | 현재 프로세스의 캐시 준비, Addressables 로드 경로 전환, 상태 오버레이와 입력 처리 |
 | `Directory.Build.props` | 두 프로젝트의 BepInEx 참조 경로 선택 |
-| `scripts/setup.ps1`, `scripts/reference-files.ps1` | 실제 게임의 필수 참조 DLL 확인·복사와 버전 기록 |
-| `scripts/build.ps1` | 공통 버전 소스 생성, 두 DLL 빌드, 사용한 참조 기록 |
-| `scripts/package-release.ps1` | DLL 두 개만 담은 ZIP, 빌드 메타데이터와 체크섬 생성 |
+| `scripts/setup.ps1` | 실제 게임의 참조 DLL 복사 후 `global.json`의 SDK를 `.work/dotnet`에 준비 |
+| `scripts/reference-files.ps1` | `Sync-AstralReferences`로 필수 참조 DLL 확인·복사와 버전 기록 |
+| `scripts/dotnet-sdk.ps1` | 호환 SDK 재사용, Microsoft 공식 설치기를 통한 로컬 SDK 설치, 빌드용 SDK 선택 |
+| `scripts/build.ps1` | 호환 SDK 확인, 공통 버전 소스 생성, 기본 `dist/`에 최신 DLL 두 개와 `build-references.json` 생성 |
+| `scripts/package-release.ps1` | `build.ps1` 호출 후 DLL 두 개와 참조 기록을 기본 `dist/release/vX.Y.Z/`에 복사하고, 같은 폴더에 DLL 두 개만 담은 ZIP·빌드 메타데이터·체크섬 생성 |
 | `VERSION`, `scripts/project-version.ps1` | 공통 버전과 버전 해석·증가 규칙 |
-| `scripts/prepare-release.ps1`, `scripts/upload-release.ps1` | 버전·설명 초안 준비, 기존 ZIP과 체크섬을 플러그인 Release에 업로드 |
-| `tests/test_plugin.py`, `tests/test_package.py`, `tests/scripts/` | 소스 회귀, ZIP 구성·체크섬, 참조·버전·릴리즈 스크립트 검사 |
+| `scripts/prepare-release.ps1`, `scripts/upload-release.ps1` | 버전·설명 초안 준비, `VERSION`에서 정한 기본 `dist/release/vX.Y.Z/`의 ZIP과 체크섬을 플러그인 Release에 업로드 |
+| `tests/test_plugin.py`, `tests/test_package.py`, `tests/scripts/` | 소스 회귀, ZIP 구성·체크섬, 참조·SDK·버전·릴리즈 스크립트 검사 |
+
+릴리즈 파일은 버전별 폴더에 보관하므로 다른 버전을 패키징해도 이전 산출물은 유지됩니다. 전체 [산출물 구성](releases.md#3-로컬-빌드와-패키징)을 참고하세요.
 
 DLL 이름과 BepInEx 식별자는 별개입니다. 두 DLL은 아래 기존 GUID를 사용하며, 버전은 빌드에서 생성한 `AstralBuildVersion.Value`를 공유합니다.
 

@@ -97,20 +97,26 @@ Steam에서 게임을 실행하면 한글패치 확인과 다운로드 진행 �
 
 ## 빌드
 
-Windows에서 PowerShell 7, .NET SDK 6.0.428, Git과 BepInEx가 초기화된 게임을 준비합니다. 저장소 루트에서 참조 DLL을 복사합니다.
+Windows에서 PowerShell 7, Git과 BepInEx가 초기화된 게임을 준비합니다. 저장소 루트에서 초기 준비로 `setup.ps1`을 한 번 실행합니다.
 
 ```powershell
 .\scripts\setup.ps1
 ```
 
-DLL만 만들려면 `build.ps1`, DLL·ZIP·체크섬을 함께 만들려면 `package-release.ps1`을 실행합니다. 필요한 명령 하나를 선택하세요.
+이 명령은 로컬 게임의 참조 DLL을 `.work/refs`로 복사한 뒤 `global.json`의 `sdk.version`에 지정된 SDK(현재 6.0.428)를 Microsoft 공식 `dotnet-install.ps1` 설치기로 `.work/dotnet`에 설치합니다. 준비된 호환 SDK는 재사용하며, 첫 SDK 설치에는 인터넷 연결이 필요합니다. 시스템 SDK를 설치하거나 PATH를 변경하지 않습니다.
+
+DLL만 만들려면 `build.ps1`, DLL·ZIP·체크섬을 함께 만들려면 `package-release.ps1`을 실행합니다. 필요한 명령 하나를 선택하세요. 패키지 명령이 내부에서 빌드를 호출하므로 먼저 `build.ps1`을 실행할 필요는 없습니다.
 
 ```powershell
-.\scripts\build.ps1             # DLL 두 개 생성
-.\scripts\package-release.ps1   # 소스 빌드 후 릴리즈 파일 생성
+.\scripts\build.ps1             # dist/에 최신 DLL 두 개와 참조 기록 생성
+.\scripts\package-release.ps1   # 소스 빌드 후 버전별 릴리즈 파일 생성
 ```
 
-결과는 `dist/`에 생성됩니다. 버전은 `VERSION` 파일을 기준으로 합니다. 참조 경로와 SDK 설정, 검사 명령은 [개발 환경과 검증](docs/development.md)에 있습니다.
+최신 DLL과 빌드 참조 기록은 `dist/`에, 릴리즈 파일은 `dist/release/vX.Y.Z/`에 생성됩니다. 다른 버전을 패키징해도 이전 버전의 산출물은 유지됩니다.
+
+버전은 `VERSION` 파일을 기준으로 합니다. [산출물 구성](docs/releases.md#3-로컬-빌드와-패키징)과 [참조 경로·SDK·출력 폴더 옵션](docs/development.md)을 참고하세요.
+
+빌드나 패키징에서 호환 SDK가 없다는 오류가 나오면 `.\scripts\setup.ps1`을 다시 실행하세요.
 
 소스와 `VERSION`을 커밋하여 `origin`에 push하고, GitHub CLI 설치와 최초 `gh auth login`을 마친 뒤 로컬 패키지를 업로드합니다.
 
@@ -119,7 +125,7 @@ DLL만 만들려면 `build.ps1`, DLL·ZIP·체크섬을 함께 만들려면 `pac
 .\scripts\upload-release.ps1           # 기존 ZIP과 체크섬 업로드 및 공개
 ```
 
-업로드 명령은 `dist/`의 ZIP과 `SHA256SUMS.txt`만 첨부합니다. 버전 준비와 옵션, 재시도 절차는 [릴리즈 문서](docs/releases.md#4-github-release에-업로드)를 참고하세요.
+업로드 명령의 기본 `-AssetRoot`는 `VERSION`에서 정한 `dist/release/vX.Y.Z/`이며, 이 폴더의 ZIP과 `SHA256SUMS.txt`만 첨부합니다. 버전 준비와 옵션, 재시도 절차는 [릴리즈 문서](docs/releases.md#4-github-release에-업로드)를 참고하세요.
 
 - [개발 환경과 검증](docs/development.md)
 - [로컬 빌드와 릴리즈](docs/releases.md)

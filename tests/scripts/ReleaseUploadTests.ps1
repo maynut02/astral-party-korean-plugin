@@ -231,7 +231,7 @@ function New-Fixture {
     $scripts = Join-Path $root 'scripts'
     $bin = Join-Path $root '.work/fixturebin'
     $stateRoot = Join-Path $root '.work/gh'
-    $assets = Join-Path $root 'dist'
+    $assets = Join-Path $root "dist/release/$tag"
     foreach ($path in @($scripts, $bin, $stateRoot, $assets)) { [IO.Directory]::CreateDirectory($path) | Out-Null }
     Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts/upload-release.ps1'), (Join-Path $repoRoot 'scripts/project-version.ps1') -Destination $scripts
     [IO.File]::WriteAllText((Join-Path $scripts 'build.ps1'), "throw 'Upload must never invoke build.ps1.'", $utf8)
@@ -441,6 +441,32 @@ try {
         Assert-NoCalls $f
         Assert-True ((Get-FixtureFingerprint $f) -ceq $before) 'Preview wrote or changed fixture files.'
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $f.Root '.work/upload-release'))) 'Preview created a snapshot directory.'
+    }
+
+    Test-Case 'missing-version-folder-does-not-use-old-dist-assets' {
+        $f = New-Fixture
+        foreach ($name in $assetNames) {
+            $path = Join-Path $f.Assets $name
+            Copy-Item -LiteralPath $path -Destination (Join-Path $f.Root "dist/$name")
+            Remove-Item -LiteralPath $path
+        }
+        Assert-Rejected $f 'Missing release asset'
+        Assert-NoCalls $f
+    }
+
+    Test-Case 'explicit-asset-root-overrides-version-folder' {
+        $f = New-Fixture
+        $customRoot = Join-Path $f.Root '.work/custom-assets'
+        [IO.Directory]::CreateDirectory($customRoot) | Out-Null
+        foreach ($name in $assetNames) {
+            Copy-Item -LiteralPath (Join-Path $f.Assets $name) -Destination (Join-Path $customRoot $name)
+        }
+        $before = Get-FixtureFingerprint $f
+        $result = Invoke-FixtureUpload $f @{ Preview = $true; AssetRoot = $customRoot }
+        Assert-True ($result.AssetRoot -ieq $customRoot) 'Explicit asset directory was ignored.'
+        Assert-Sequence $result.Assets $assetNames 'Custom directory preview exposed extra assets.'
+        Assert-NoCalls $f
+        Assert-True ((Get-FixtureFingerprint $f) -ceq $before) 'Custom directory preview changed fixture files.'
     }
 
     foreach ($probe in @('Auth', 'Repository', 'Commit', 'Tag', 'Releases')) {

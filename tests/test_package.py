@@ -14,13 +14,16 @@ EXPECTED = {
 }
 
 
-@pytest.fixture
-def package():
-    metadata_path = ROOT / "dist/windows-plugin-build.json"
-    if not metadata_path.is_file():
+@pytest.fixture(
+    params=sorted((ROOT / "dist/release").glob("v*/windows-plugin-build.json")) or [None],
+    ids=lambda path: path.parent.name if path else "not-built",
+)
+def package(request):
+    metadata_path = request.param
+    if metadata_path is None:
         pytest.skip("Run scripts/package-release.ps1 to verify the built release")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    return metadata, ROOT / "dist" / metadata["package"]["file"]
+    return metadata, metadata_path.parent / metadata["package"]["file"]
 
 
 def test_zip_contains_exactly_plugin_files(package) -> None:
@@ -39,10 +42,12 @@ def test_zip_contains_exactly_plugin_files(package) -> None:
 
 def test_package_metadata_and_checksum_match_actual_zip(package) -> None:
     metadata, path = package
+    assert path.parent.name == f"v{metadata['packageVersion']}"
+    assert path.name == f"AstralPartyKoreanPlugin-v{metadata['packageVersion']}.zip"
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     assert digest == metadata["package"]["sha256"]
     assert path.stat().st_size == metadata["package"]["size"]
-    assert (ROOT / "dist/SHA256SUMS.txt").read_text(encoding="utf-8").strip() == f"{digest}  {path.name}"
+    assert (path.parent / "SHA256SUMS.txt").read_text(encoding="utf-8").strip() == f"{digest}  {path.name}"
 
 
 def test_build_cache_contains_only_local_compile_references() -> None:

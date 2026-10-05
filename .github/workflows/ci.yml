@@ -30,6 +30,8 @@ jobs:
       - run: python -m pytest tests
       - name: Check local reference synchronization
         run: ./tests/scripts/ReferenceFilesTests.ps1
+      - name: Check SDK selection and setup guidance
+        run: ./tests/scripts/DotNetSdkTests.ps1
       - name: Check project version
         run: ./tests/scripts/ProjectVersionTests.ps1
       - name: Check local release preparation
