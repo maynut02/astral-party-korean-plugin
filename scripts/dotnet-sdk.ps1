@@ -1,26 +1,37 @@
+#requires -Version 7.0
+
 function Get-AstralSdkVersion([string]$Root) {
+    $Root = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Root)
     $version = ([IO.File]::ReadAllText((Join-Path $Root 'global.json')) | ConvertFrom-Json).sdk.version
     if ($version -notmatch '\A[0-9]+\.[0-9]+\.[0-9]+\z') { throw 'global.json must specify a complete SDK version.' }
     return $version
 }
 
 function Test-AstralDotnetSdk([string]$Path, [string]$Root) {
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
     $PSNativeCommandUseErrorActionPreference = $false
-    Push-Location $Root
+    $pushed = $false
     try {
+        if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+        # Resolve a relative host before changing directory to resolve global.json.
+        $Path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+        Push-Location -LiteralPath $Root -ErrorAction Stop
+        $pushed = $true
         # --version resolves global.json; a runtime-only host cannot satisfy it.
         $output = @(& $Path --version 2>&1)
         return $LASTEXITCODE -eq 0 -and ($output -join '').Trim() -match '\A[0-9]+\.[0-9]+\.[0-9]+\z'
     }
     catch { return $false }
-    finally { Pop-Location }
+    finally { if ($pushed) { Pop-Location } }
 }
 
 function Get-AstralDotnet([string]$Root, [string]$WorkRoot, [string]$DotNetPath = '') {
+    $Root = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Root)
+    $WorkRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($WorkRoot)
     $sdkVersion = Get-AstralSdkVersion $Root
     if ($DotNetPath) {
-        if (Test-Path -LiteralPath $DotNetPath -PathType Leaf) { $DotNetPath = [IO.Path]::GetFullPath($DotNetPath) }
+        if (Test-Path -LiteralPath $DotNetPath -PathType Leaf) {
+            $DotNetPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($DotNetPath)
+        }
         else {
             $command = Get-Command $DotNetPath -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($command) { $DotNetPath = $command.Source }
@@ -39,6 +50,8 @@ function Get-AstralDotnet([string]$Root, [string]$WorkRoot, [string]$DotNetPath 
 }
 
 function Install-AstralLocalSdk([string]$Root, [string]$WorkRoot) {
+    $Root = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Root)
+    $WorkRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($WorkRoot)
     $sdkVersion = Get-AstralSdkVersion $Root
     $dotnetRoot = Join-Path $WorkRoot 'dotnet'
     $dotnetExe = Join-Path $dotnetRoot 'dotnet.exe'

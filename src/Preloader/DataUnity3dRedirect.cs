@@ -132,15 +132,7 @@ public sealed class DataUnity3dRedirect : BasePatcher
 
             startupProgress?.Update("게임을 시작합니다.", "패치 준비가 완료되었습니다.", 100);
             WriteSessionMarker();
-            try
-            {
-                InstallCreateFileHook(gameRoot);
-            }
-            catch
-            {
-                DeleteSessionMarker();
-                throw;
-            }
+            InstallCreateFileHook(gameRoot);
         }
         catch (Exception ex)
         {
@@ -256,9 +248,9 @@ public sealed class DataUnity3dRedirect : BasePatcher
         {
             startupProgress?.Update("로컬 패치를 확인하고 있습니다.", "게임 데이터와 번역 데이터를 확인합니다.");
             if (!EnsureStateManifest(state, allowDownload)) return false;
-            if (!EnsureCachedManifestCompatibility(state)) return false;
+            if (!EnsureCachedManifestCompatibility(state, out var manifestBytes)) return false;
             if (!EnsureStateReplacement(state, allowDownload)) return false;
-            if (!EnsureAddressablesFromState(state, allowDownload)) return false;
+            if (!EnsureAddressablesFromState(manifestBytes, allowDownload)) return false;
             state.AddressablesReady = true;
             StampFileTimes(state);
             return true;
@@ -626,21 +618,8 @@ public sealed class DataUnity3dRedirect : BasePatcher
     private static void SaveState(RedirectState state)
     {
         if (statePath == null) return;
-        var temp = statePath + ".tmp-" + Process.GetCurrentProcess().Id + "-" + Guid.NewGuid().ToString("N");
-        try
-        {
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(state, new JsonSerializerOptions { WriteIndented = true });
-            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            {
-                stream.Write(bytes, 0, bytes.Length);
-                stream.Flush(true);
-            }
-            File.Move(temp, statePath, true);
-        }
-        finally
-        {
-            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
-        }
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(state, new JsonSerializerOptions { WriteIndented = true });
+        WriteAtomicFile(statePath, bytes);
     }
 
     private static void MigrateLegacyData(string legacyPluginRoot, string sharedRoot)
@@ -770,8 +749,9 @@ public sealed class DataUnity3dRedirect : BasePatcher
         Log("manifest-generation-ready path=" + path + " sha256=" + manifestSha);
     }
 
-    private static bool EnsureCachedManifestCompatibility(RedirectState state)
+    private static bool EnsureCachedManifestCompatibility(RedirectState state, out byte[] manifestBytes)
     {
+        manifestBytes = Array.Empty<byte>();
         try
         {
             var path = StateManifestPath(state);
@@ -780,6 +760,7 @@ public sealed class DataUnity3dRedirect : BasePatcher
             if (!string.Equals(Sha256(bytes), state.ManifestSha256, StringComparison.OrdinalIgnoreCase))
                 return false;
             ValidateInstalledGameAgainstManifest(bytes, state);
+            manifestBytes = bytes;
             return true;
         }
         catch (Exception ex)
@@ -872,14 +853,13 @@ public sealed class DataUnity3dRedirect : BasePatcher
         return string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool EnsureAddressablesFromState(RedirectState state, bool allowDownload)
+    private static bool EnsureAddressablesFromState(byte[] manifestBytes, bool allowDownload)
     {
-        if (!EnsureStateManifest(state, allowDownload)) return false;
-        if (!EnsureCachedManifestCompatibility(state)) return false;
         try
         {
-            var bytes = File.ReadAllBytes(StateManifestPath(state));
-            EnsureAddressablesPayloads(bytes, allowDownload);
+            // Use the same verified manifest snapshot that passed compatibility
+            // checks before preparing the replacement data and Addressables files.
+            EnsureAddressablesPayloads(manifestBytes, allowDownload);
             return true;
         }
         catch (Exception ex)
@@ -1592,6 +1572,7 @@ public sealed class DataUnity3dRedirect : BasePatcher
                 if (closed) return;
             }
 
+            var parent = IntPtr.Zero;
             try
             {
                 var controls = new InitCommonControlsExData
@@ -1605,7 +1586,7 @@ public sealed class DataUnity3dRedirect : BasePatcher
                 var height = 170;
                 var x = Math.Max(0, (GetSystemMetrics(SmCxScreen) - width) / 2);
                 var y = Math.Max(0, (GetSystemMetrics(SmCyScreen) - height) / 2);
-                var parent = CreateWindowExW(
+                parent = CreateWindowExW(
                     WsExTopmost | WsExToolWindow | WsExNoActivate,
                     "STATIC", string.Empty,
                     WsPopup | WsBorder | WsClipChildren,
@@ -1674,6 +1655,10 @@ public sealed class DataUnity3dRedirect : BasePatcher
             }
             finally
             {
+                // Destroy the parent and its children on their owning thread
+                // while the managed window procedure is still rooted.
+                if (parent != IntPtr.Zero) DestroyWindow(parent);
+                GC.KeepAlive(windowProc);
                 lock (sync)
                 {
                     window = IntPtr.Zero;
@@ -1778,6 +1763,9 @@ public sealed class DataUnity3dRedirect : BasePatcher
 
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr handle, int command);
+
+        [DllImport("user32.dll")]
+        private static extern bool DestroyWindow(IntPtr handle);
 
         [DllImport("user32.dll")]
         private static extern bool UpdateWindow(IntPtr handle);

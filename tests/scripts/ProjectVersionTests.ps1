@@ -1,3 +1,4 @@
+#requires -Version 7.0
 param()
 
 $ErrorActionPreference = 'Stop'
@@ -45,18 +46,26 @@ foreach ($bump in @('patch', 'minor', 'major', 'miner')) {
 $testRoot = Join-Path $repoRoot ('.work/project-version-tests/' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($testRoot) | Out-Null
 try {
+    try {
     $failed = $false
-    try { Get-AstralProjectVersion -Root $testRoot | Out-Null } catch { $failed = $true }
-    if (-not $failed) { throw 'Missing VERSION file was accepted.' }
-    $passed++
-    [IO.File]::WriteAllText((Join-Path $testRoot 'VERSION'), "0.0.1`r`n", [Text.UTF8Encoding]::new($false))
-    if ((Get-AstralProjectVersion -Root $testRoot) -cne '0.0.1') { throw 'VERSION file was not read correctly.' }
-    $passed++
-    Write-Output "Project version tests passed: $passed cases."
-}
-finally {
-    $resolvedFixture = [IO.Path]::GetFullPath($testRoot)
-    $expectedParent = [IO.Path]::GetFullPath((Join-Path $repoRoot '.work/project-version-tests')).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
-    if (-not $resolvedFixture.StartsWith($expectedParent, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unexpected test fixture location.' }
-    if (Test-Path -LiteralPath $resolvedFixture) { Remove-Item -LiteralPath $resolvedFixture -Recurse -Force }
+        try { Get-AstralProjectVersion -Root $testRoot | Out-Null } catch { $failed = $true }
+        if (-not $failed) { throw 'Missing VERSION file was accepted.' }
+        $passed++
+        [IO.File]::WriteAllText((Join-Path $testRoot 'VERSION'), "0.0.1`r`n", [Text.UTF8Encoding]::new($false))
+        if ((Get-AstralProjectVersion -Root $testRoot) -cne '0.0.1') { throw 'VERSION file was not read correctly.' }
+        $passed++
+        Write-Output "Project version tests passed: $passed cases."
+    }
+    finally {
+        $resolvedFixture = [IO.Path]::GetFullPath($testRoot)
+        $expectedParent = [IO.Path]::GetFullPath((Join-Path $repoRoot '.work/project-version-tests')).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+        if (-not $resolvedFixture.StartsWith($expectedParent, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unexpected test fixture location.' }
+        if (Test-Path -LiteralPath $resolvedFixture) { Remove-Item -LiteralPath $resolvedFixture -Recurse -Force }
+    }
+    $global:LASTEXITCODE = 0
+} finally {
+    $resolved = [IO.Path]::GetFullPath($testRoot)
+    $parent = [IO.Path]::GetFullPath((Join-Path $repoRoot '.work/project-version-tests')).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    if (-not $resolved.StartsWith($parent, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unexpected version test fixture location.' }
+    if (Test-Path -LiteralPath $resolved) { Remove-Item -LiteralPath $resolved -Recurse -Force }
 }

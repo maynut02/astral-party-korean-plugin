@@ -34,7 +34,7 @@ public sealed class AddressablesInProcessPatch : BasePlugin
         "UnityEngine.ResourceManagement.ResourceProviders.AssetBundleResource";
     private const string PayloadDirectoryName = "payloads";
     private const int PreparationTimeoutSeconds = 45;
-    private const long TransportLimit = 64 * 1024 * 1024;
+    private const long TransportLimit = 128L * 1024 * 1024;
     private static readonly object Sync = new object();
     private static readonly List<PayloadEntry> Entries = new List<PayloadEntry>();
     private static readonly object UiSync = new object();
@@ -770,15 +770,8 @@ public sealed class AddressablesInProcessPatch : BasePlugin
 
     private static string Sha256(byte[] bytes)
     {
-        using (var sha = SHA256.Create()) return ToHex(sha.ComputeHash(bytes));
-    }
-
-
-    private static string ToHex(byte[] bytes)
-    {
-        var builder = new StringBuilder(bytes.Length * 2);
-        foreach (var value in bytes) builder.Append(value.ToString("x2"));
-        return builder.ToString();
+        using var sha = SHA256.Create();
+        return Convert.ToHexString(sha.ComputeHash(bytes)).ToLowerInvariant();
     }
 
     private static void ValidateHex(string value, int length, string field)
@@ -1275,6 +1268,7 @@ internal static class OverlayUi
 
     private static Font? FindPreferredFont()
     {
+        if (overlayFont != null) return overlayFont;
         try
         {
             // Unity's reference assemblies expose FindObjectsOfTypeAll<T>() as

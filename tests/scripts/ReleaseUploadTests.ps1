@@ -447,6 +447,21 @@ function Test-Case([string]$CaseName, [scriptblock]$Body) {
 }
 
 try {
+    Test-Case 'relative-assets-and-notes-resolve-from-the-caller-directory' {
+        $f = New-Fixture
+        $notesPath = Join-Path $f.Root '.work/relative-notes.md'
+        $notes = "## Relative notes`nCaller directory regression`n"
+        [IO.File]::WriteAllText($notesPath, $notes, $utf8)
+        $before = Get-FixtureFingerprint $f
+        Push-Location -LiteralPath $f.Root
+        try {
+            $result = Invoke-FixtureUpload $f @{ Preview = $true; AssetRoot = "dist/release/$tag"; NotesFile = '.work/relative-notes.md' }
+        } finally { Pop-Location }
+        Assert-True ($result.AssetRoot -ieq $f.Assets -and $result.Notes -ieq $notesPath -and $result.NotesContent -ceq $notes) 'Relative release paths used the process working directory.'
+        Assert-NoCalls $f
+        Assert-True ((Get-FixtureFingerprint $f) -ceq $before) 'Relative path preview changed fixture files.'
+    }
+
     Test-Case 'fresh-release-is-draft-first-with-only-zip-checksum-and-git-notes-snapshot' {
         $f = New-Fixture
         $before = Get-AssetFingerprint $f

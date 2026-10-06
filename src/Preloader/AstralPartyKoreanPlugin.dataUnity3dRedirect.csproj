@@ -1,18 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
+    <AstralPluginProject>true</AstralPluginProject>
     <AssemblyName>AstralPartyKoreanPlugin.dataUnity3dRedirect</AssemblyName>
     <RootNamespace>AstralParty.KoreanPatch</RootNamespace>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>disable</ImplicitUsings>
-    <LangVersion>latest</LangVersion>
-    <Optimize>true</Optimize>
-    <DebugType>portable</DebugType>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="$(AstralBuildVersionSource)" Link="AstralBuildVersion.g.cs" Condition="'$(AstralBuildVersionSource)' != '' and Exists('$(AstralBuildVersionSource)')" />
     <Reference Include="BepInEx.Core">
       <HintPath>$(AstralBepInExRoot)/core/BepInEx.Core.dll</HintPath>
       <Private>false</Private>

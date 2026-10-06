@@ -9,19 +9,18 @@
 
 ## 설치
 
-Windows x64의 Steam판을 대상으로 합니다. 게임에 **BepInEx 6 Unity IL2CPP Windows x64**가 먼저 설치되어 있어야 합니다. 플러그인 ZIP에는 한글패치 DLL 두 개만 들어 있습니다.
+Windows x64의 글로벌판·중국판을 지원합니다. 게임에 **BepInEx 6 Unity IL2CPP Windows x64**가 먼저 설치되어 있어야 합니다. 플러그인 ZIP에는 DLL 두 개만 들어 있으며 BepInEx는 포함하지 않습니다.
+
+| Steam판 | 설치 폴더 | 실행 파일 |
+| --- | --- | --- |
+| 글로벌판 | `8vJXnINT` | `AstralParty_INT.exe` |
+| 중국판 | `8vJXn6CN` | `AstralParty_CN.exe` |
 
 ### 1. BepInEx 설치와 게임용 설정
 
 1. 게임을 종료하고, Steam 라이브러리에서 아스트랄 파티를 우클릭해 **관리 → 로컬 파일 보기**를 선택합니다.
-2. 실행하는 판에 맞는 폴더로 들어갑니다. 아래 실행 파일이 있는 위치에 BepInEx와 플러그인을 설치합니다.
-
-   | Steam판 | 폴더 | 실행 파일 |
-   | --- | --- | --- |
-   | 글로벌판 | `8vJXnINT` | `AstralParty_INT.exe` |
-   | 중국판 | `8vJXn6CN` | `AstralParty_CN.exe` |
-
-3. [BepInEx 다운로드](https://builds.bepinex.dev/projects/bepinex_be)에서 **Unity IL2CPP Windows x64** 배포물을 내려받아 압축 내용 전체를 이 위치에 복사합니다. 특정 BepInEx 빌드 번호를 고정하지 않습니다.
+2. 위 표에서 실행하는 판의 폴더로 들어갑니다. 게임 실행 파일이 있는 위치에 BepInEx와 플러그인을 설치합니다.
+3. [BepInEx 다운로드](https://builds.bepinex.dev/projects/bepinex_be)에서 **Unity IL2CPP Windows x64** 배포물을 내려받아 압축 내용 전체를 이 위치에 복사합니다. 빌드 참조는 설치된 게임의 DLL을 사용하며 특정 BepInEx 빌드 번호를 고정하지 않습니다.
 4. **게임을 처음 실행하기 전에** `BepInEx/config/BepInEx.cfg`를 열고 아래 설정을 적용합니다. 폴더나 파일이 없다면 직접 만드세요. 파일 이름이 `BepInEx.cfg.txt`로 저장되지 않도록 확인하세요.
 
 ```ini
@@ -35,7 +34,7 @@ Enabled = false
 WriteUnityLog = false
 ```
 
-기존 설정 파일이 있다면 해당 항목 세 개의 값만 바꾸고 다른 설정은 유지하세요. 같은 섹션과 항목을 중복으로 추가할 필요는 없습니다. 이 설정은 아스트랄 파티의 BepInEx 초기화 문제를 피하기 위한 것입니다.
+기존 설정 파일이 있다면 위 세 항목만 바꾸세요. 같은 섹션과 항목을 중복으로 추가하지 않습니다. 이 설정은 아스트랄 파티의 BepInEx 초기화 문제를 피하기 위한 것입니다.
 
 설정을 저장한 뒤 Steam에서 게임을 한 번 실행하고 종료합니다. 최초 실행은 BepInEx의 참조 파일 생성 때문에 시간이 걸릴 수 있습니다.
 
@@ -97,40 +96,27 @@ Steam에서 게임을 실행하면 한글패치 확인과 다운로드 진행 �
 
 ## 빌드
 
-Windows에서 PowerShell 7, Git과 BepInEx가 초기화된 게임을 준비합니다. 저장소 루트에서 초기 준비로 `setup.ps1`을 한 번 실행합니다.
+Windows x64에서 PowerShell 7, Git과 BepInEx가 초기화된 게임을 준비하고 저장소 루트에서 실행합니다.
 
 ```powershell
 .\scripts\setup.ps1
 ```
 
-이 명령은 로컬 게임의 참조 DLL을 `.work/refs`로 복사한 뒤 `global.json`의 `sdk.version`에 지정된 SDK(현재 6.0.428)를 Microsoft 공식 `dotnet-install.ps1` 설치기로 `.work/dotnet`에 설치합니다. 준비된 호환 SDK는 재사용하며, 첫 SDK 설치에는 인터넷 연결이 필요합니다. 시스템 SDK를 설치하거나 PATH를 변경하지 않습니다.
+`setup.ps1`은 게임의 참조 DLL을 `.work/refs`에 복사하고 `global.json`이 지정한 로컬 .NET SDK를 `.work/dotnet`에 준비합니다. 첫 SDK 설치에는 인터넷 연결이 필요합니다.
 
-DLL만 만들려면 `build.ps1`, DLL·ZIP·체크섬을 함께 만들려면 `package-release.ps1`을 실행합니다. 필요한 명령 하나를 선택하세요. 패키지 명령이 내부에서 빌드를 호출하므로 먼저 `build.ps1`을 실행할 필요는 없습니다.
-
-```powershell
-.\scripts\build.ps1             # dist/에 최신 DLL 두 개와 참조 기록 생성
-.\scripts\package-release.ps1   # 소스 빌드 후 버전별 릴리즈 파일 생성
-```
-
-최신 DLL과 빌드 참조 기록은 `dist/`에, 릴리즈 파일은 `dist/release/vX.Y.Z/`에 생성됩니다. 다른 버전을 패키징해도 이전 버전의 산출물은 유지됩니다.
-
-버전은 `VERSION` 파일을 기준으로 합니다. [산출물 구성](docs/releases.md#3-로컬-빌드와-패키징)과 [참조 경로·SDK·출력 폴더 옵션](docs/development.md)을 참고하세요.
-
-빌드나 패키징에서 호환 SDK가 없다는 오류가 나오면 `.\scripts\setup.ps1`을 다시 실행하세요.
-
-소스와 `VERSION`을 커밋하여 `origin`에 push하고, GitHub CLI 설치와 최초 `gh auth login`을 마친 뒤 로컬 패키지를 업로드합니다.
+DLL만 필요하면 빌드 명령을, 릴리즈 파일도 필요하면 패키징 명령을 선택하세요. 패키징은 항상 최신 소스를 빌드하므로 선행 빌드는 필요 없습니다.
 
 ```powershell
-.\scripts\upload-release.ps1 -Preview | Format-List  # GitHub 호출·파일 변경 없이 본문까지 확인
-.\scripts\upload-release.ps1                        # 기존 ZIP과 체크섬 업로드 및 공개
+.\scripts\build.ps1             # DLL 두 개와 빌드 참조 기록 생성
+.\scripts\package-release.ps1   # 소스 빌드 후 DLL·ZIP·체크섬 생성
 ```
 
-업로드 명령은 `VERSION`에서 정한 `dist/release/vX.Y.Z/`의 ZIP과 `SHA256SUMS.txt`를 첨부합니다. 준비된 설명 파일이 없으면 커밋 제목·짧은 SHA와 설치 안내를 자동 생성합니다. `-NotesFile`로 설명을 지정할 수 있으며, `-Preview`의 `NotesContent`로 본문을 확인합니다. 버전 준비와 옵션, 재시도 절차는 [릴리즈 문서](docs/releases.md#4-github-release에-업로드)를 참고하세요.
+빌드 결과는 `dist/`, 릴리즈 파일은 `dist/release/vX.Y.Z/`에 생성됩니다. `VERSION`이 제품 버전의 유일한 기준이며 빌드와 패키징은 버전을 올리지 않습니다. 경로 옵션과 전체 검사 명령은 [개발 문서](docs/development.md), 버전 준비와 GitHub Release 업로드는 [릴리즈 문서](docs/releases.md)에 있습니다.
 
 - [개발 환경과 검증](docs/development.md)
 - [로컬 빌드와 릴리즈](docs/releases.md)
-- [코드 구조와 리소스 적용](docs/architecture.md)
+- [코드 구조와 실행 흐름](docs/architecture.md)
 
 ## 라이선스
 
-소스 코드와 문서는 [MIT 라이선스](LICENSE)로 배포합니다. 게임과 외부 의존성에는 각각의 라이선스가 적용됩니다.
+소스 코드와 문서는 [MIT 라이선스](LICENSE)로 배포합니다. 저작권 및 라이선스 고지를 유지하면 사용, 수정, 재배포와 상업적 이용이 가능합니다. 게임과 외부 의존성에는 각각의 라이선스가 적용됩니다.

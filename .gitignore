@@ -10,11 +10,20 @@ __pycache__/
 .venv/
 *.user
 *.suo
+
+# Local credentials, logs, build references and distributable binaries.
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+*.log
 *.dll
 *.exe
 *.pdb
 *.zip
-*.log
-.env
-.env.*
-!.env.example
+*.7z
+*.pfx
+*.p12
+*.key
+*.pem

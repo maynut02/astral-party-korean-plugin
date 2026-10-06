@@ -1,3 +1,4 @@
+#requires -Version 7.0
 param(
     [string]$Version = '',
     [string]$GameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\Astral Party\8vJXnINT',
@@ -8,14 +9,16 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $false
 $pluginRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 . (Join-Path $PSScriptRoot 'project-version.ps1')
-if (-not $Version) { $Version = Get-AstralProjectVersion -Root $pluginRoot }
-else { $Version = ConvertTo-AstralVersion $Version }
+$currentVersion = Get-AstralProjectVersion -Root $pluginRoot
+if ($Version -and (ConvertTo-AstralVersion $Version) -cne $currentVersion) { throw 'Build Version must match the VERSION file. Run scripts/prepare-release.ps1 first.' }
+$Version = $currentVersion
 if (-not $WorkRoot) { $WorkRoot = Join-Path $pluginRoot '.work' }
 if (-not $OutputRoot) { $OutputRoot = Join-Path $pluginRoot 'dist' }
-$work = [IO.Path]::GetFullPath($WorkRoot)
-$dist = [IO.Path]::GetFullPath($OutputRoot)
+$work = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($WorkRoot)
+$dist = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputRoot)
 . (Join-Path $PSScriptRoot 'dotnet-sdk.ps1')
 $DotNetPath = Get-AstralDotnet -Root $pluginRoot -WorkRoot $work -DotNetPath $DotNetPath
 
@@ -26,42 +29,37 @@ if (-not $RefsRoot) {
         Sync-AstralReferences -GameRoot $GameRoot -WorkRoot $work
     }
 }
-$RefsRoot = [IO.Path]::GetFullPath($RefsRoot)
+$RefsRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RefsRoot)
 Assert-AstralReferences $RefsRoot
-$generatedVersionSource = Join-Path $work 'generated/AstralBuildVersion.g.cs'
-New-Item -ItemType Directory -Path (Split-Path -Parent $generatedVersionSource),$dist -Force | Out-Null
-[ordered]@{ references = @(Get-AstralReferenceVersions $RefsRoot) } |
-    ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $dist 'build-references.json') -Encoding utf8NoBOM
-@"
-internal static class AstralBuildVersion
-{
-    public const string Value = "$Version";
-}
-"@ | Set-Content -LiteralPath $generatedVersionSource -Encoding utf8NoBOM
-
+$projects = @(
+    'src/Preloader/AstralPartyKoreanPlugin.dataUnity3dRedirect.csproj',
+    'src/Plugin/AstralPartyKoreanPlugin.csproj'
+)
 # Resolve global.json from this project even when invoked from another working directory.
 Push-Location $pluginRoot
 try {
-    foreach ($project in @(
-        'src/Preloader/AstralPartyKoreanPlugin.dataUnity3dRedirect.csproj',
-        'src/Plugin/AstralPartyKoreanPlugin.csproj'
-    )) {
+    foreach ($project in $projects) {
         & $DotNetPath build (Join-Path $pluginRoot $project) --configuration Release --nologo `
             "-p:AstralRefsRoot=$RefsRoot" `
-            "-p:AstralBuildVersionSource=$generatedVersionSource" `
             "-p:Version=$Version" -p:ContinuousIntegrationBuild=true
         if ($LASTEXITCODE -ne 0) { throw "dotnet build failed: $project" }
     }
 }
 finally { Pop-Location }
 
-foreach ($component in @(
-    @{ Project = 'Preloader'; Assembly = 'AstralPartyKoreanPlugin.dataUnity3dRedirect' },
-    @{ Project = 'Plugin'; Assembly = 'AstralPartyKoreanPlugin' }
-)) {
-    $dll = Join-Path $pluginRoot "src/$($component.Project)/bin/Release/net6.0/$($component.Assembly).dll"
-    if (-not (Test-Path -LiteralPath $dll)) { throw "Build output is missing: $dll" }
-    Copy-Item -LiteralPath $dll -Destination (Join-Path $dist "$($component.Assembly).dll") -Force
+$outputs = foreach ($project in $projects) {
+    $projectPath = Join-Path $pluginRoot $project
+    $assembly = [IO.Path]::GetFileNameWithoutExtension($projectPath)
+    $dll = Join-Path (Split-Path -Parent $projectPath) "bin/Release/net6.0/$assembly.dll"
+    if (-not (Test-Path -LiteralPath $dll -PathType Leaf)) { throw "Build output is missing: $dll" }
+    if ([Reflection.AssemblyName]::GetAssemblyName($dll).Name -cne $assembly -or [Diagnostics.FileVersionInfo]::GetVersionInfo($dll).ProductVersion -cne $Version) {
+        throw "Built DLL identity or version does not match VERSION: $dll"
+    }
+    $dll
 }
+New-Item -ItemType Directory -Path $dist -Force | Out-Null
+foreach ($dll in $outputs) { Copy-Item -LiteralPath $dll -Destination (Join-Path $dist ([IO.Path]::GetFileName($dll))) -Force }
+[ordered]@{ references = @(Get-AstralReferenceVersions $RefsRoot) } |
+    ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $dist "build-references.json") -Encoding utf8NoBOM
 Write-Output "output=$dist"
 Write-Output "version=$Version"

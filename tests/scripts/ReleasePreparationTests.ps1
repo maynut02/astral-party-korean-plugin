@@ -83,6 +83,16 @@ function Test-Case([string]$Name, [scriptblock]$Body) {
 }
 
 try {
+    Test-Case 'relative-repository-root-resolves-from-the-caller-directory' {
+        $root = New-TestRepository 'relative-root' -Released
+        Add-TestCommit $root 'fix: relative path regression'
+        Push-Location -LiteralPath $testRoot
+        try {
+            $result = & $prepare -RepositoryRoot './relative-root' -Preview
+            Assert-True ($result.Version -ceq '0.0.2' -and $result.SourceCommit -ceq (Invoke-TestGit $root @('rev-parse', 'HEAD'))) 'Relative repository root used the process working directory.'
+        } finally { Pop-Location }
+    }
+
     Test-Case 'first-release-keeps-0.0.1-and-generates-korean-notes' {
         $root = New-TestRepository 'first'
         Add-TestCommit $root 'feat: 채팅 기능 추가'
