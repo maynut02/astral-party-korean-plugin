@@ -121,11 +121,11 @@ DLL만 만들려면 `build.ps1`, DLL·ZIP·체크섬을 함께 만들려면 `pac
 소스와 `VERSION`을 커밋하여 `origin`에 push하고, GitHub CLI 설치와 최초 `gh auth login`을 마친 뒤 로컬 패키지를 업로드합니다.
 
 ```powershell
-.\scripts\upload-release.ps1 -Preview  # GitHub 호출 없이 로컬 계획 확인
-.\scripts\upload-release.ps1           # 기존 ZIP과 체크섬 업로드 및 공개
+.\scripts\upload-release.ps1 -Preview | Format-List  # GitHub 호출·파일 변경 없이 본문까지 확인
+.\scripts\upload-release.ps1                        # 기존 ZIP과 체크섬 업로드 및 공개
 ```
 
-업로드 명령의 기본 `-AssetRoot`는 `VERSION`에서 정한 `dist/release/vX.Y.Z/`이며, 이 폴더의 ZIP과 `SHA256SUMS.txt`만 첨부합니다. 버전 준비와 옵션, 재시도 절차는 [릴리즈 문서](docs/releases.md#4-github-release에-업로드)를 참고하세요.
+업로드 명령은 `VERSION`에서 정한 `dist/release/vX.Y.Z/`의 ZIP과 `SHA256SUMS.txt`를 첨부합니다. 준비된 설명 파일이 없으면 커밋 제목·짧은 SHA와 설치 안내를 자동 생성합니다. `-NotesFile`로 설명을 지정할 수 있으며, `-Preview`의 `NotesContent`로 본문을 확인합니다. 버전 준비와 옵션, 재시도 절차는 [릴리즈 문서](docs/releases.md#4-github-release에-업로드)를 참고하세요.
 
 - [개발 환경과 검증](docs/development.md)
 - [로컬 빌드와 릴리즈](docs/releases.md)

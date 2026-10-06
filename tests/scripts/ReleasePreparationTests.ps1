@@ -5,6 +5,7 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $prepare = Join-Path $repoRoot 'scripts/prepare-release.ps1'
+$releaseNotes = Join-Path $repoRoot 'scripts/release-notes.ps1'
 $testRoot = Join-Path $repoRoot ('.work/release-preparation-tests/' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($testRoot) | Out-Null
 $git = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Source
@@ -18,6 +19,32 @@ function Invoke-TestGit([string]$Root, [string[]]$Arguments) {
 }
 function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
+}
+function Assert-InstallationNotes([string]$Notes, [string]$Tag) {
+    Assert-True ($Notes.StartsWith('## 변경 사항') -and $Notes.Contains('## 설치')) 'Notes are missing the Korean change/install headings.'
+    foreach ($token in @(
+        'BepInEx 6', 'Unity IL2CPP Windows x64', "AstralPartyKoreanPlugin-$Tag.zip",
+        'BepInEx/config/BepInEx.cfg',
+        '### 기존 버전에서 업데이트', 'AstralParty.DataUnity3dRedirect.dll',
+        'AstralParty.AddressablesInProcessPatch.dll'
+    )) {
+        Assert-True ($Notes.Contains($token)) "Installation notes are missing: $token"
+    }
+    Assert-True ($Notes -match '(?m)^\s*\|[^\r\n]*글로벌판[^\r\n]*8vJXnINT[^\r\n]*AstralParty_INT\.exe[^\r\n]*\|') 'Global installation table row is missing.'
+    Assert-True ($Notes -match '(?m)^\s*\|[^\r\n]*중국판[^\r\n]*8vJXn6CN[^\r\n]*AstralParty_CN\.exe[^\r\n]*\|') 'Chinese installation table row is missing.'
+    # Installation paths may be shown as full paths or as a fenced directory tree.
+    Assert-True ($Notes.Contains('BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll') -or $Notes -match '(?m)^BepInEx/\r?\n(?:[^\r\n]*\r?\n)*?[^\r\n]*patchers/\r?\n[^\r\n]*AstralPartyKoreanPlugin\.dataUnity3dRedirect\.dll') 'Patcher DLL installation path is missing.'
+    Assert-True ($Notes.Contains('BepInEx/plugins/AstralPartyKoreanPatch/AstralPartyKoreanPlugin.dll') -or $Notes -match '(?m)^BepInEx/\r?\n(?:[^\r\n]*\r?\n)*?[^\r\n]*plugins/\r?\n[^\r\n]*AstralPartyKoreanPatch/\r?\n[^\r\n]*AstralPartyKoreanPlugin\.dll') 'Plugin DLL installation path is missing.'
+    Assert-True ($Notes -match '\[[^\]\r\n]*README[^\]\r\n]*\]\([^)]+\)|\[[^\]\r\n]+\]\([^)]*README[^)]*\)|\[[^\]\r\n]+\]\(https://github\.com/maynut02/astral-party-korean-plugin#설치\)') 'Installation notes are missing a README link.'
+}
+function Assert-CommitNotes([string]$Notes, [object[]]$Commits) {
+    $changes = ($Notes -split '(?m)^## 설치', 2)[0]
+    $lines = @($changes -split "`n" | Where-Object { $_ -match '^\s*- ' })
+    Assert-True ($lines.Count -eq $Commits.Count) 'Notes did not list exactly the commits in the release range.'
+    for ($index = 0; $index -lt $Commits.Count; $index++) {
+        $commit = $Commits[$index]
+        Assert-True ($lines[$index].Contains($commit.Subject) -and $lines[$index] -match "(?<![0-9a-f])$($commit.Sha.Substring(0, 7))(?![0-9a-f])") 'Notes lost a commit subject, seven-character SHA or history order.'
+    }
 }
 function Add-TestCommit([string]$Root, [string]$Message) {
     [IO.File]::AppendAllText((Join-Path $Root 'source.txt'), ([Guid]::NewGuid().ToString('N') + "`n"), $utf8)
@@ -65,6 +92,7 @@ try {
         Assert-True ($result.CommitCount -eq 3 -and -not $result.VersionChanged) 'First release did not aggregate history.'
         $notes = [IO.File]::ReadAllText($result.NotesPath)
         Assert-True ($notes.Contains('채팅 기능 추가') -and $notes.Contains('입력 처리 수정') -and $notes.Contains('BepInEx')) 'Korean release notes were corrupted.'
+        Assert-InstallationNotes $notes $result.Tag
         Assert-True ((Invoke-TestGit $root @('tag', '--list')) -eq '') 'Preparation created a tag.'
         Assert-True ((Invoke-TestGit $root @('status', '--porcelain')) -eq '') 'Preparation changed source files.'
         $again = & $prepare -RepositoryRoot $root
@@ -162,10 +190,12 @@ try {
         $root = New-TestRepository 'merge' -Released
         Invoke-TestGit $root @('checkout', '-b', 'feature') | Out-Null
         Add-TestCommit $root 'feat: 브랜치 기능'
+        $branchSha = Invoke-TestGit $root @('rev-parse', 'HEAD')
         Invoke-TestGit $root @('checkout', 'main') | Out-Null
         Invoke-TestGit $root @('merge', '--no-ff', 'feature', '-m', 'feat!: misleading merge message') | Out-Null
         $result = & $prepare -RepositoryRoot $root
         Assert-True ($result.Version -ceq '0.1.0' -and $result.CommitCount -eq 1 -and $result.DetectedBump -ceq 'minor') 'Merge analysis lost branch changes or included merge messages.'
+        Assert-CommitNotes ([IO.File]::ReadAllText($result.NotesPath)) @([pscustomobject]@{ Subject = 'feat: 브랜치 기능'; Sha = $branchSha })
     }
     Test-Case 'new-feature-after-patch-preparation-needs-explicit-replan' {
         $root = New-TestRepository 'new-feature' -Released
@@ -226,6 +256,59 @@ try {
         $url = ([Uri]::new($original + [IO.Path]::DirectorySeparatorChar)).AbsoluteUri
         Invoke-TestGit $testRoot @('clone', '--depth', '1', $url, $shallow) | Out-Null
         Assert-Rejected $shallow 'full Git history'
+    }
+
+    Test-Case 'all-subjects-and-short-shas-appear-once-in-reverse-git-order' {
+        $root = New-TestRepository 'complete-notes' -Version '1.2.3' -Released
+        $expected = @(foreach ($message in @(
+            "Feat(chat): 한글 입력 개선 🎉`n`nfix: 본문은 별도 변경 항목이 아님`n`nBREAKING CHANGE: 이전 설정 형식 제거",
+            'docs: 설치 안내 추가',
+            '일반 커밋: 구분자 없이 기록한 변경',
+            'fix: 두 번째 입력 오류 수정'
+        )) {
+            Add-TestCommit $root $message
+            [pscustomobject]@{ Subject = ($message -split "`n", 2)[0]; Sha = (Invoke-TestGit $root @('rev-parse', 'HEAD')) }
+        })
+        $result = & $prepare -RepositoryRoot $root
+        $notes = [IO.File]::ReadAllText($result.NotesPath, $utf8)
+        Assert-True ($result.Version -ceq '2.0.0' -and $result.DetectedBump -ceq 'major' -and $result.CommitCount -eq 4) 'Shared parsing changed version selection or dropped non-release commits.'
+        Assert-CommitNotes $notes $expected
+        Assert-InstallationNotes $notes $result.Tag
+        Assert-True (-not $notes.Contains('본문은 별도 변경 항목이 아님') -and -not $notes.Contains('chore: 초기 소스')) 'Notes included commit bodies or the previous release.'
+    }
+
+    Test-Case 'nul-log-parser-preserves-shas-types-and-breaking-markers' {
+        . $releaseNotes
+        $messages = @(
+            "FeAt(chat): 한글 기능 🎉`n`n본문에 $([char]30)와 $([char]31) 구분자를 포함",
+            'fix(input)!: 입력 형식 변경',
+            "refactor: 규약 변경`r`n`r`nBREAKING CHANGE: 기존 규약 제거",
+            "chore: 설정 변경`n`nBREAKING-CHANGE: 기존 설정 제거",
+            '일반 한글 커밋'
+        )
+        $shas = @(('a' * 40), ('b' * 40), ('c' * 40), ('d' * 40), ('e' * 40))
+        $log = (@(for ($index = 0; $index -lt $messages.Count; $index++) {
+            "$($shas[$index])`0$($messages[$index])`n`0"
+        }) -join '')
+        $commits = @(ConvertFrom-AstralCommitLog -Log $log)
+        Assert-True ($commits.Count -eq 5) 'NUL parsing split a multiline message or dropped a commit.'
+        $types = @('feat', 'fix', 'refactor', 'chore', '')
+        $breaking = @($false, $true, $true, $true, $false)
+        for ($index = 0; $index -lt $messages.Count; $index++) {
+            Assert-True ($commits[$index].Sha -ceq $shas[$index]) 'NUL parser changed a full commit SHA.'
+            Assert-True ($commits[$index].Subject -ceq ($messages[$index] -split "`r?`n", 2)[0]) 'NUL parser changed a Korean subject or included its body.'
+            Assert-True ($commits[$index].Type -ceq $types[$index] -and $commits[$index].Breaking -eq $breaking[$index]) 'NUL parser changed Conventional Commit type/breaking semantics.'
+        }
+    }
+
+    Test-Case 'empty-commit-log-renders-a-markdown-string-with-installation-guide' {
+        . $releaseNotes
+        $commits = @(ConvertFrom-AstralCommitLog -Log '')
+        Assert-True ($commits.Count -eq 0) 'Empty Git log produced a phantom commit.'
+        $notes = New-AstralReleaseNotes -Tag 'v0.0.1' -Commits $commits
+        Assert-True ($notes -is [string]) 'Release notes helper did not return one Markdown string.'
+        Assert-True (-not $notes.Contains("`r") -and $notes.EndsWith("`n")) 'Release notes helper did not return LF Markdown.'
+        Assert-InstallationNotes $notes 'v0.0.1'
     }
 
     Test-Case 'windows-powershell-5.1-preserves-korean-release-notes' {

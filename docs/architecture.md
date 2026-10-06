@@ -15,10 +15,13 @@
 | `scripts/build.ps1` | 호환 SDK 확인, 공통 버전 소스 생성, 기본 `dist/`에 최신 DLL 두 개와 `build-references.json` 생성 |
 | `scripts/package-release.ps1` | `build.ps1` 호출 후 DLL 두 개와 참조 기록을 기본 `dist/release/vX.Y.Z/`에 복사하고, 같은 폴더에 DLL 두 개만 담은 ZIP·빌드 메타데이터·체크섬 생성 |
 | `VERSION`, `scripts/project-version.ps1` | 공통 버전과 버전 해석·증가 규칙 |
+| `scripts/release-notes.ps1` | 준비·업로드에서 공유하는 릴리즈 설명 생성기; 실제 커밋 제목·짧은 SHA 목록과 설치·업데이트 안내 구성 |
 | `scripts/prepare-release.ps1`, `scripts/upload-release.ps1` | 버전·설명 초안 준비, `VERSION`에서 정한 기본 `dist/release/vX.Y.Z/`의 ZIP과 체크섬을 플러그인 Release에 업로드 |
 | `tests/test_plugin.py`, `tests/test_package.py`, `tests/scripts/` | 소스 회귀, ZIP 구성·체크섬, 참조·SDK·버전·릴리즈 스크립트 검사 |
 
 릴리즈 파일은 버전별 폴더에 보관하므로 다른 버전을 패키징해도 이전 산출물은 유지됩니다. 전체 [산출물 구성](releases.md#3-로컬-빌드와-패키징)을 참고하세요.
+
+준비 명령과 업로더는 같은 템플릿으로 커밋 목록과 설치 안내를 생성합니다. 업로더는 명시한 설명 파일과 준비된 파일을 우선 사용하고, 파일이 없으면 Git 이력에서 설명을 생성합니다. 커밋 범위와 재시도 동작은 [릴리즈 문서](releases.md#4-github-release에-업로드)에 있습니다.
 
 DLL 이름과 BepInEx 식별자는 별개입니다. 두 DLL은 아래 기존 GUID를 사용하며, 버전은 빌드에서 생성한 `AstralBuildVersion.Value`를 공유합니다.
 

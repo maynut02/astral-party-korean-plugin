@@ -33,7 +33,7 @@ git fetch origin --tags
 .\scripts\prepare-release.ps1
 ```
 
-`-Preview`는 파일을 바꾸지 않고 버전·태그·소스 커밋·커밋 수를 보여줍니다. 실제 실행은 필요한 경우 `VERSION`을 갱신하고 `.work/releases/vX.Y.Z/release-notes.md`에 변경 사항과 설치 안내 초안을 만듭니다.
+`-Preview`는 파일을 바꾸지 않고 버전·태그·소스 커밋·커밋 수를 보여줍니다. 실제 실행은 필요한 경우 `VERSION`을 갱신하고, 공통 `scripts/release-notes.ps1` 생성기로 `.work/releases/vX.Y.Z/release-notes.md`에 커밋 목록과 설치 안내를 준비합니다. 업로더의 자동 생성도 같은 본문 형식을 사용합니다.
 
 이미 준비한 버전으로 다시 실행하면 버전을 추가로 올리지 않습니다. 준비 이후 더 큰 변경이 추가되어 버전이 부족해지면 재계획을 요구합니다. 증가 종류나 버전을 직접 지정하려면 다음 중 필요한 명령을 사용하세요.
 
@@ -119,13 +119,21 @@ gh auth login
 ### 계획 확인과 게시
 
 ```powershell
-.\scripts\upload-release.ps1 -Preview
+.\scripts\upload-release.ps1 -Preview | Format-List
 .\scripts\upload-release.ps1
 ```
 
-`-Preview`는 저장소·태그·소스 커밋·첨부 파일·설명의 로컬 계획을 출력합니다. GitHub를 호출하지 않으므로 원격 Release 상태는 실제 업로드 시 확인합니다.
+`-Preview`는 저장소·태그·소스 커밋·첨부 파일·설명의 로컬 계획과 `NotesContent`에 담긴 전체 본문을 출력합니다. GitHub CLI를 호출하거나 파일을 변경하지 않으므로 원격 Release 상태는 실제 업로드 시 확인합니다.
 
-업로드 명령은 이미 생성한 `dist/release/vX.Y.Z/`의 ZIP과 `SHA256SUMS.txt`를 사용합니다. 기본 `-AssetRoot`와 태그·제목의 버전은 `VERSION`에서 읽으며, `VERSION`이 `2.0.0`이면 `dist/release/v2.0.0/`을 사용합니다. 준비된 설명 파일이 있으면 그 내용을 사용하고, 없으면 GitHub가 설명을 생성합니다. 게시 전에 사용할 설명을 검토하세요.
+업로드 명령은 이미 생성한 `dist/release/vX.Y.Z/`의 ZIP과 `SHA256SUMS.txt`를 사용합니다. 기본 `-AssetRoot`와 태그·제목의 버전은 `VERSION`에서 읽으며, `VERSION`이 `2.0.0`이면 `dist/release/v2.0.0/`을 사용합니다. 설명은 다음 우선순위로 선택합니다.
+
+1. 명시한 `-NotesFile`의 내용. 지정한 파일이 없으면 중단합니다.
+2. 기존 `.work/releases/vX.Y.Z/release-notes.md`의 내용.
+3. 두 파일을 사용하지 않으면 Git 커밋 이력에서 자동 생성한 본문.
+
+업로더가 이력에서 자동 생성할 때는 실행 시작에 고정한 HEAD에서 도달할 수 있는 태그 중 현재 `VERSION` 태그를 제외하고, 현재 버전보다 낮은 가장 높은 `vX.Y.Z`를 기준으로 `이전 태그..고정 HEAD`를 사용합니다. 이전 릴리즈 태그가 없는 첫 배포는 고정 HEAD까지의 전체 이력을 사용합니다. 병합 커밋은 `--no-merges`로 제외합니다. 이 자동 생성 경로는 준비 명령과 마찬가지로 전체 Git 이력을 요구하며 shallow clone에서는 중단합니다. 전체 이력과 릴리즈 태그를 먼저 가져오세요.
+
+공통 생성기의 첫 헤딩은 `## 변경 사항`이며 실제 커밋 제목과 짧은 SHA를 목록으로 담습니다. 이어지는 `## 설치`에는 글로벌판·중국판의 폴더와 실행 파일 위치표, DLL 두 개의 설치 경로와 기존 DLL 업데이트 안내가 포함됩니다. 준비된 설명 파일이 없어도 이 본문을 생성하며, GitHub의 `--generate-notes`로 대체하지 않습니다. 게시 전에 `NotesContent`를 검토하세요.
 
 새 Release는 draft로 생성하고 두 파일의 업로드가 완료되면 공개합니다. draft로 유지하려면 다음과 같이 실행합니다.
 
@@ -137,13 +145,13 @@ gh auth login
 | --- | --- |
 | `-Tag` | `VERSION`의 `vX.Y.Z`; 지정할 때도 같은 버전이어야 함 |
 | `-AssetRoot` | `VERSION`에서 정한 `dist/release/vX.Y.Z/`; 업로드할 ZIP과 체크섬이 있는 폴더 |
-| `-NotesFile` | `.work/releases/vX.Y.Z/release-notes.md`; 생략 시 준비된 파일 또는 자동 생성 설명 사용 |
+| `-NotesFile` | 명시한 파일을 우선 사용; 생략 시 `.work/releases/vX.Y.Z/release-notes.md`, 없으면 Git 이력에서 자동 생성 |
 | `-Draft` | 새 Release와 기존 draft를 공개하지 않음 |
-| `-Preview` | GitHub 호출 없이 로컬 계획만 출력 |
+| `-Preview` | GitHub CLI 호출·파일 변경 없이 로컬 계획과 전체 `NotesContent` 출력 |
 
 ### 기존 Release와 재시도
 
-Release가 이미 있으면 누락된 첨부 파일만 추가합니다. 같은 이름의 파일은 원격과 로컬의 SHA-256이 같을 때 건너뛰고, 다르면 중단합니다. 기존 태그가 다른 소스 커밋을 가리킬 때도 중단합니다. 파일을 교체하려면 새 버전을 준비하세요.
+Release가 이미 있으면 누락된 첨부 파일만 추가하며, 재실행하거나 `-NotesFile`을 지정해도 기존 설명은 자동으로 덮어쓰지 않습니다. 같은 이름의 파일은 원격과 로컬의 SHA-256이 같을 때 건너뛰고, 다르면 중단합니다. 기존 태그가 다른 소스 커밋을 가리킬 때도 중단합니다. 파일을 교체하려면 새 버전을 준비하세요.
 
 중간에 업로드가 실패하면 같은 HEAD와 로컬 파일을 유지한 채 같은 명령을 다시 실행합니다. 이미 올라간 동일 파일은 건너뛰고 나머지를 올린 뒤 draft를 공개합니다. 계속 draft로 유지하려면 재시도에도 `-Draft`를 지정하세요. 이미 공개된 Release의 공개 상태는 유지됩니다.
 

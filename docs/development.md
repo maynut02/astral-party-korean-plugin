@@ -105,6 +105,14 @@ dist/
 
 내부에서 `build.ps1`을 호출하므로 선행 빌드는 필요 없습니다. 빌드가 실패하면 패키징을 중단합니다. 파일 구성과 업로드 순서는 [릴리즈 문서](releases.md#3-로컬-빌드와-패키징)에 있습니다.
 
+`prepare-release.ps1`의 설명 준비와 업로더의 Git 이력 자동 생성은 공통 `scripts/release-notes.ps1`을 사용합니다. 준비 명령과 업로더의 이력 자동 생성 경로에는 shallow clone이 아닌 전체 Git 이력과 릴리즈 태그가 필요합니다. 설명 파일의 선택 우선순위와 커밋 범위는 [릴리즈 문서](releases.md#4-github-release에-업로드)를 참고하세요.
+
+커밋·push한 동일 HEAD의 패키지를 준비한 뒤 아래 명령으로 설명 본문을 검토합니다.
+
+```powershell
+(.\scripts\upload-release.ps1 -Preview).NotesContent
+```
+
 ## 검증
 
 저장소 루트에서 CI와 같은 검사를 실행합니다.
