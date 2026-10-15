@@ -41,7 +41,6 @@ public sealed class DataUnity3dRedirect : BasePatcher
     private static string? gameDataRootPath;
     private static string? payloadRootPath;
     private static string? sessionPath;
-    private static string? localAddressablesRoot;
     private static string? logPath;
     private static StartupProgress? startupProgress;
 
@@ -99,9 +98,6 @@ public sealed class DataUnity3dRedirect : BasePatcher
             gameDataRootPath = Path.Combine(patchRoot, "game-data");
             payloadRootPath = Path.Combine(patchRoot, "payloads");
             sessionPath = Path.Combine(patchRoot, "preloader-session.json");
-            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            localAddressablesRoot = Path.Combine(userProfile, "AppData", "LocalLow", "feimo",
-                routeLayout.LocalLowDirectory, "com.unity.addressables");
             logPath = Path.Combine(gameRoot, "BepInEx", "data-redirect.log");
 
             Directory.CreateDirectory(patchRoot);
@@ -207,9 +203,6 @@ public sealed class DataUnity3dRedirect : BasePatcher
             // component has been downloaded and verified successfully.
             ValidateInstalledGameAgainstManifest(manifestBytes, candidate);
             startupProgress?.Update("게임 데이터를 확인하고 있습니다.", "설치 상태와 패치 파일을 검증합니다.");
-            if (!VerifySource(candidate, fastPath: false))
-                throw new InvalidDataException("installed data.unity3d is missing or unreadable");
-
             SaveCandidateManifest(manifestBytes, manifestSha);
             if (!VerifyReplacement(candidate, fastPath: false))
                 DownloadReplacement(candidate);
@@ -271,7 +264,7 @@ public sealed class DataUnity3dRedirect : BasePatcher
 
     private static bool EnsureStateReplacement(RedirectState state, bool allowDownload)
     {
-        if (!VerifySource(state, fastPath: true))
+        if (!VerifySource(state))
         {
             Log("state-source-unavailable tag=" + state.ReleaseTag);
             return false;
@@ -408,7 +401,7 @@ public sealed class DataUnity3dRedirect : BasePatcher
         return result ?? throw new InvalidDataException("manifest has no game-data/data.unity3d entry");
     }
 
-    private static bool VerifySource(RedirectState state, bool fastPath)
+    private static bool VerifySource(RedirectState state)
     {
         if (sourcePath == null || !File.Exists(sourcePath))
         {
@@ -418,43 +411,38 @@ public sealed class DataUnity3dRedirect : BasePatcher
 
         try
         {
-            var info = new FileInfo(sourcePath);
             using (var stream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read,
-                       FileShare.ReadWrite | FileShare.Delete))
+                       FileShare.Read))
             {
-                _ = stream.Length;
+                var sizeMatches = stream.Length == state.SourceSize;
+                string actualSha;
+                if (sizeMatches)
+                {
+                    using var hash = SHA256.Create();
+                    actualSha = Convert.ToHexString(hash.ComputeHash(stream)).ToLowerInvariant();
+                }
+                else
+                {
+                    actualSha = "skipped-size-mismatch";
+                }
+
+                var matchesManifestSource = sizeMatches &&
+                    string.Equals(actualSha, state.SourceSha256, StringComparison.OrdinalIgnoreCase);
+                Log("source-verify match=" + matchesManifestSource +
+                    " sha256=" + actualSha +
+                    " expectedSha256=" + state.SourceSha256 +
+                    " bytes=" + stream.Length +
+                    " expectedBytes=" + state.SourceSize +
+                    " action=" + (matchesManifestSource ? "accepted" : "rejected-mismatch"));
+
+                // LocalLow catalogs can still describe the previous client on the first launch
+                // after a Steam update. Verify the installed bytes on every activation, including
+                // offline fallback; older plugin versions could stamp a mismatched source's time.
+                if (!matchesManifestSource)
+                    startupProgress?.Update("게임을 원본 리소스로 시작합니다.",
+                        "현재 설치된 게임과 패치의 원본이 달라 적용을 건너뜁니다.");
+                return matchesManifestSource;
             }
-
-            if (fastPath && state.SourceWriteTimeUtcTicks > 0 &&
-                info.LastWriteTimeUtc.Ticks == state.SourceWriteTimeUtcTicks)
-                return true;
-
-            var sizeMatches = info.Length == state.SourceSize;
-            string actualSha;
-            bool shaMatches;
-            if (sizeMatches)
-            {
-                actualSha = Sha256File(sourcePath);
-                shaMatches = string.Equals(actualSha, state.SourceSha256, StringComparison.OrdinalIgnoreCase);
-            }
-            else
-            {
-                actualSha = "skipped-size-mismatch";
-                shaMatches = false;
-            }
-
-            var matchesManifestSource = sizeMatches && shaMatches;
-            Log("source-verify match=" + matchesManifestSource +
-                " sha256=" + actualSha +
-                " expectedSha256=" + state.SourceSha256 +
-                " bytes=" + info.Length +
-                " expectedBytes=" + state.SourceSize +
-                " action=" + (matchesManifestSource ? "accepted" : "ignored-mismatch"));
-
-            // The installed data.unity3d is not used as the patch payload. As long as it exists and
-            // can be opened, source hash/size differences are diagnostic only. The downloaded
-            // replacement is still validated strictly before the CreateFileW redirect is enabled.
-            return true;
         }
         catch (Exception ex)
         {
@@ -772,85 +760,26 @@ public sealed class DataUnity3dRedirect : BasePatcher
 
     private static void ValidateInstalledGameAgainstManifest(byte[] manifestBytes, RedirectState state)
     {
-        using var document = JsonDocument.Parse(manifestBytes);
-        var game = RequiredObject(document.RootElement, "game");
-        var expectedVersion = RequiredString(game, "version");
-        var expectedRevision = RequiredString(game, "revision");
-        var expectedCatalogHash = RequiredString(game, "catalogHash").ToLowerInvariant();
-        ValidateHex(expectedCatalogHash, 32, "catalog hash");
+        // LocalLow catalog files belong to earlier game runs and can be missing or stale.
+        // The immutable manifest's original-file fingerprint identifies the installed player.
+        var expected = ParseGameDataManifest(manifestBytes, state.ReleaseTag,
+            state.ManifestSha256, state.ManifestUrl);
+        if (state.SourceSize != expected.SourceSize || state.PayloadSize != expected.PayloadSize ||
+            !string.Equals(state.SourceSha256, expected.SourceSha256, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(state.PayloadSha256, expected.PayloadSha256, StringComparison.OrdinalIgnoreCase) ||
+            state.DownloadSize != expected.DownloadSize ||
+            !string.Equals(state.DownloadSha256, expected.DownloadSha256, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(state.DownloadUrl, expected.DownloadUrl, StringComparison.Ordinal))
+            throw new InvalidDataException("cached game-data identity does not match verified manifest");
 
-        state.GameVersion = expectedVersion;
-        state.Revision = expectedRevision;
-        state.CatalogHash = expectedCatalogHash;
+        state.GameVersion = expected.GameVersion;
+        state.Revision = expected.Revision;
+        state.CatalogHash = expected.CatalogHash;
+        if (!VerifySource(state))
+            throw new InvalidDataException("installed data.unity3d does not match release source");
 
-        var local = DiscoverLocalCatalogIdentity();
-        if (local == null)
-        {
-            startupProgress?.Update("한글패치를 적용할 수 없습니다.",
-                "게임 리소스 정보를 확인할 수 없어 원본으로 실행합니다.");
-            throw new InvalidDataException("local Addressables catalog identity is unavailable");
-        }
-
-        if (!string.Equals(local.Version, expectedVersion, StringComparison.Ordinal))
-        {
-            startupProgress?.Update("한글패치를 적용할 수 없습니다.",
-                "현재 게임 버전에 대응하는 한글패치가 아직 없습니다.");
-            throw new InvalidDataException("game version mismatch: local=" + local.Version +
-                " patch=" + expectedVersion);
-        }
-
-        if (!string.Equals(local.Hash, expectedCatalogHash, StringComparison.OrdinalIgnoreCase))
-        {
-            startupProgress?.Update("한글패치를 적용할 수 없습니다.",
-                "현재 게임 리소스에 대응하는 한글패치가 아직 없습니다.");
-            throw new InvalidDataException("catalog hash mismatch: local=" + local.Hash +
-                " patch=" + expectedCatalogHash + " revision=" + expectedRevision);
-        }
-
-        Log("game-compatibility-ready version=" + local.Version + " catalog=" + local.Hash +
-            " patchRevision=" + expectedRevision);
-    }
-
-    private static LocalCatalogIdentity? DiscoverLocalCatalogIdentity()
-    {
-        if (string.IsNullOrWhiteSpace(localAddressablesRoot) || !Directory.Exists(localAddressablesRoot))
-            return null;
-
-        LocalCatalogIdentity? best = null;
-        foreach (var path in Directory.EnumerateFiles(localAddressablesRoot, "catalog_*.hash", SearchOption.TopDirectoryOnly))
-        {
-            var name = Path.GetFileName(path);
-            if (!name.StartsWith("catalog_", StringComparison.OrdinalIgnoreCase) ||
-                !name.EndsWith(".hash", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var version = name.Substring("catalog_".Length,
-                name.Length - "catalog_".Length - ".hash".Length);
-            if (string.IsNullOrWhiteSpace(version)) continue;
-
-            string hash;
-            try
-            {
-                hash = File.ReadAllText(path).Trim().ToLowerInvariant();
-            }
-            catch
-            {
-                continue;
-            }
-            if (hash.Length != 32 || hash.Any(c => !Uri.IsHexDigit(c))) continue;
-
-            var candidate = new LocalCatalogIdentity(version, hash);
-            if (best == null || CompareGameVersions(candidate.Version, best.Version) > 0)
-                best = candidate;
-        }
-        return best;
-    }
-
-    private static int CompareGameVersions(string left, string right)
-    {
-        if (Version.TryParse(left, out var leftVersion) && Version.TryParse(right, out var rightVersion))
-            return leftVersion.CompareTo(rightVersion);
-        return string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
+        Log("game-compatibility-ready version=" + state.GameVersion + " catalog=" + state.CatalogHash +
+            " patchRevision=" + state.Revision + " source=installed-data.unity3d");
     }
 
     private static bool EnsureAddressablesFromState(byte[] manifestBytes, bool allowDownload)
@@ -1832,25 +1761,23 @@ public sealed class DataUnity3dRedirect : BasePatcher
         var directoryName = Path.GetFileName(Path.TrimEndingDirectorySeparator(gameRoot));
         if (string.Equals(directoryName, "8vJXnINT", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(processName, "AstralParty_INT", StringComparison.OrdinalIgnoreCase))
-            return new SteamRouteLayout("INT_STEAM", "AstralParty_INT_Data", "AstralParty_INT");
+            return new SteamRouteLayout("INT_STEAM", "AstralParty_INT_Data");
         if (string.Equals(directoryName, "8vJXn6CN", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(processName, "AstralParty_CN", StringComparison.OrdinalIgnoreCase))
-            return new SteamRouteLayout("CN_STEAM", "AstralParty_CN_Data", "AstralParty_CN");
+            return new SteamRouteLayout("CN_STEAM", "AstralParty_CN_Data");
         throw new InvalidOperationException("unsupported Astral Party Steam install: " + gameRoot);
     }
 
     private sealed class SteamRouteLayout
     {
-        public SteamRouteLayout(string route, string dataDirectory, string localLowDirectory)
+        public SteamRouteLayout(string route, string dataDirectory)
         {
             Route = route;
             DataDirectory = dataDirectory;
-            LocalLowDirectory = localLowDirectory;
         }
 
         public string Route { get; }
         public string DataDirectory { get; }
-        public string LocalLowDirectory { get; }
     }
 
     private sealed class ReleaseInfo
@@ -1900,17 +1827,6 @@ public sealed class DataUnity3dRedirect : BasePatcher
         public long DownloadSize { get; }
         public string PayloadSha256 { get; }
         public long PayloadSize { get; }
-    }
-
-    private sealed class LocalCatalogIdentity
-    {
-        public LocalCatalogIdentity(string version, string hash)
-        {
-            Version = version;
-            Hash = hash;
-        }
-        public string Version { get; }
-        public string Hash { get; }
     }
 
     private sealed class PreloaderSession

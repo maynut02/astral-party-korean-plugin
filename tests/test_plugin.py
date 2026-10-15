@@ -40,14 +40,14 @@ def test_preloader_restores_game_window_foreground_once() -> None:
     assert "HwndNoTopmost" in source
 
 
-def test_preloader_allows_installed_data_unity3d_mismatch() -> None:
+def test_preloader_requires_matching_installed_data_unity3d() -> None:
     source = (ROOT / "src/Preloader/DataUnity3dRedirect.cs").read_text(encoding="utf-8")
     assert "AstralBuildVersion.Value" in source
-    assert "installed data.unity3d does not match release source" not in source
-    assert "installed data.unity3d is missing or unreadable" in source
-    assert '" action=" + (matchesManifestSource ? "accepted" : "ignored-mismatch")' in source
-    assert "if (info.Length != state.SourceSize) return false;" not in source
-    assert "return true;" in source[source.index("private static bool VerifySource"):source.index("private static bool VerifyReplacement")]
+    assert "installed data.unity3d does not match release source" in source
+    assert '" action=" + (matchesManifestSource ? "accepted" : "rejected-mismatch")' in source
+    source_check = source[source.index("private static bool VerifySource"):source.index("private static bool VerifyReplacement")]
+    assert "return matchesManifestSource;" in source_check
+    assert "SourceWriteTimeUtcTicks" not in source_check
     assert "if (info.Length != state.PayloadSize) return false;" in source
     assert "string.Equals(actual, state.PayloadSha256" in source
 
@@ -167,13 +167,15 @@ internal static class Program
         var root = Path.Combine(Environment.CurrentDirectory, "cache-test");
         var releases = Path.Combine(root, "releases");
         var payloads = Path.Combine(root, "payloads");
-        var catalogs = Path.Combine(root, "catalogs");
         Directory.CreateDirectory(payloads);
-        Directory.CreateDirectory(catalogs);
+        Directory.CreateDirectory(root);
+        var original = Encoding.ASCII.GetBytes("UnityFS-original-test-player");
+        var originalSha = Convert.ToHexString(SHA256.HashData(original)).ToLowerInvariant();
+        var sourcePath = Path.Combine(root, "data.unity3d");
+        File.WriteAllBytes(sourcePath, original);
         var payload = Encoding.ASCII.GetBytes("UnityFS-valid-test-payload");
         var payloadSha = Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
         var catalogHash = new string('a', 32);
-        File.WriteAllText(Path.Combine(catalogs, "catalog_1.2.3.hash"), catalogHash);
         var manifest = Encoding.UTF8.GetBytes("{\"schemaVersion\":2," +
             "\"patch\":{\"route\":\"INT_STEAM\",\"channel\":\"release\",\"version\":\"1.0.0\"}," +
             "\"game\":{\"version\":\"1.2.3\",\"revision\":\"456\",\"catalogHash\":\"" + catalogHash + "\"}," +
@@ -181,19 +183,24 @@ internal static class Program
             "\"compression\":\"gzip\",\"operation\":\"replace\"," +
             "\"downloadUrl\":\"https://github.com/maynut02/astral-party-korean-patch/releases/download/v1/payload.gz\"," +
             "\"downloadSha256\":\"" + new string('b', 64) + "\",\"downloadSize\":12," +
-            "\"sha256\":\"" + payloadSha + "\",\"size\":" + payload.Length + "}]}");
+            "\"sha256\":\"" + payloadSha + "\",\"size\":" + payload.Length + "}," +
+            "{\"target\":\"game-data\",\"path\":\"data.unity3d\",\"compression\":\"gzip\",\"operation\":\"replace\"," +
+            "\"downloadUrl\":\"https://github.com/maynut02/astral-party-korean-patch/releases/download/v1/data.gz\"," +
+            "\"downloadSha256\":\"" + new string('b', 64) + "\",\"downloadSize\":12," +
+            "\"sha256\":\"" + payloadSha + "\",\"size\":" + payload.Length + "," +
+            "\"sourceSha256\":\"" + originalSha + "\",\"sourceSize\":" + original.Length + "}]}");
         var manifestSha = Convert.ToHexString(SHA256.HashData(manifest)).ToLowerInvariant();
         ManifestParserTest.Verify(Encoding.UTF8.GetString(manifest));
         var manifestPath = Path.Combine(releases, manifestSha, "manifest.json");
         Directory.CreateDirectory(Path.GetDirectoryName(manifestPath)!);
         File.WriteAllBytes(manifestPath, manifest);
         var stateType = typeof(DataUnity3dRedirect).GetNestedType("RedirectState", BindingFlags.NonPublic)!;
-        var state = Activator.CreateInstance(stateType, nonPublic: true)!;
-        stateType.GetProperty("ManifestSha256")!.SetValue(state, manifestSha);
         Set("route", "INT_STEAM");
+        Set("sourcePath", sourcePath);
+        var state = Invoke("ParseGameDataManifest", manifest, "1.0.0", manifestSha,
+            "https://github.com/maynut02/astral-party-korean-patch/releases/download/v1/manifest.json")!;
         Set("releaseRootPath", releases);
         Set("payloadRootPath", payloads);
-        Set("localAddressablesRoot", catalogs);
         var args = new object?[] { state, null };
         Require((bool)Invoke("EnsureCachedManifestCompatibility", args)!, "valid manifest was rejected");
         var verified = (byte[])args[1]!;
@@ -338,7 +345,7 @@ internal static class ManifestParserTest
         foreach (var route in new[] { "INT_STEAM", "CN_STEAM" })
         {
             var bytes = Encoding.UTF8.GetBytes(larger.Replace("INT_STEAM", route));
-            if (ParseManifest(bytes, route).Files.Count != 1)
+            if (ParseManifest(bytes, route).Files.Count != 2)
                 throw new InvalidOperationException("supported route rejected verified manifest");
         }
         var oversized = Encoding.UTF8.GetBytes(larger.Replace("100663296", "134217729"));

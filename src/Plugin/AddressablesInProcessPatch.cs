@@ -51,7 +51,6 @@ public sealed class AddressablesInProcessPatch : BasePlugin
         new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private static string ActiveRoute = string.Empty;
     private static string ExpectedGameVersion = string.Empty;
-    private static string ExpectedCatalogHash = string.Empty;
     private static int RuntimeRedirectDisabled;
     private Harmony? harmony;
 
@@ -321,13 +320,6 @@ public sealed class AddressablesInProcessPatch : BasePlugin
                string.Equals(route, "CN_STEAM", StringComparison.Ordinal);
     }
 
-    private static string RouteLocalLowDirectory(string route)
-    {
-        if (string.Equals(route, "INT_STEAM", StringComparison.Ordinal)) return "AstralParty_INT";
-        if (string.Equals(route, "CN_STEAM", StringComparison.Ordinal)) return "AstralParty_CN";
-        throw new InvalidDataException("unsupported Steam route: " + route);
-    }
-
     private static Type? FindType(string fullName)
     {
         foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -393,7 +385,6 @@ public sealed class AddressablesInProcessPatch : BasePlugin
                 PreparedGameVersion = manifest.GameVersion;
                 PreparedRevision = manifest.Revision;
                 ExpectedGameVersion = sessionGameVersion;
-                ExpectedCatalogHash = sessionCatalogHash;
                 Volatile.Write(ref RuntimeRedirectDisabled, 0);
             }
             Event("RELEASE_READY", "route=" + sessionRoute + ",tag=" + manifest.PatchVersion + ",game=" +
@@ -549,19 +540,9 @@ public sealed class AddressablesInProcessPatch : BasePlugin
                 return DisableRuntimeRedirect("game version changed: runtime=" + runtimeVersion +
                     " patch=" + ExpectedGameVersion);
 
-            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var localLowDirectory = RouteLocalLowDirectory(ActiveRoute);
-            var catalogPath = Path.Combine(userProfile, "AppData", "LocalLow", "feimo",
-                localLowDirectory, "com.unity.addressables", "catalog_" + runtimeVersion + ".hash");
-            if (!File.Exists(catalogPath))
-                return DisableRuntimeRedirect("runtime catalog hash is missing: " + catalogPath);
-
-            var runtimeCatalogHash = File.ReadAllText(catalogPath).Trim().ToLowerInvariant();
-            if (runtimeCatalogHash.Length != 32 || runtimeCatalogHash.Any(c => !Uri.IsHexDigit(c)))
-                return DisableRuntimeRedirect("runtime catalog hash is invalid");
-            if (!string.Equals(runtimeCatalogHash, ExpectedCatalogHash, StringComparison.OrdinalIgnoreCase))
-                return DisableRuntimeRedirect("catalog changed after preloader: runtime=" + runtimeCatalogHash +
-                    " patch=" + ExpectedCatalogHash);
+            // LocalLow catalogs can be absent or stale on first launch. The
+            // preloader verifies the installed source; FindEntry checks each
+            // request's build and exact bundle identity against that session.
             return true;
         }
         catch (Exception ex)
@@ -633,15 +614,20 @@ public sealed class AddressablesInProcessPatch : BasePlugin
             // often exposes the catalog hash only in IResourceLocation's
             // PrimaryKey/InternalId (for example `.../212\\<hash>.bundle`),
             // while m_Options.BundleName/Hash are still null. The hash is the
-            // exact cache identity from the manifest, so use it as a strict
-            // fallback rather than allowing a broad key/name match.
-            var text = (identity.InternalId ?? string.Empty) + "|" +
-                       (identity.TransformedInternalId ?? string.Empty) + "|" +
-                       (identity.PrimaryKey ?? string.Empty);
+            // exact cache identity from the manifest. A populated option must
+            // not contradict the candidate, even when a path contains its hash.
+            var knownHash = identity.Hash != null && identity.Hash.Length == 32 &&
+                            identity.Hash.All(Uri.IsHexDigit) && identity.Hash.Any(c => c != '0');
             foreach (var entry in Entries)
             {
-                if (!string.IsNullOrEmpty(entry.Hash) &&
-                    text.IndexOf(entry.Hash, StringComparison.OrdinalIgnoreCase) >= 0)
+                if ((!string.IsNullOrEmpty(identity.BundleName) &&
+                     !string.Equals(identity.BundleName, entry.BundleName, StringComparison.OrdinalIgnoreCase)) ||
+                    (knownHash && !string.Equals(identity.Hash, entry.Hash, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                if (ContainsHashToken(identity.InternalId, entry.Hash) ||
+                    ContainsHashToken(identity.TransformedInternalId, entry.Hash) ||
+                    ContainsHashToken(identity.PrimaryKey, entry.Hash))
                 {
                     Event("IDENTITY_HASH_FALLBACK", identity + " hash=" + entry.Hash);
                     return entry;
@@ -651,28 +637,66 @@ public sealed class AddressablesInProcessPatch : BasePlugin
         return null;
     }
 
+    private static bool ContainsHashToken(string? path, string hash)
+    {
+        if (string.IsNullOrEmpty(path) || hash.Length != 32 || !hash.All(Uri.IsHexDigit))
+            return false;
+
+        var normalized = path.Replace('\\', '/');
+        var suffix = normalized.IndexOfAny(new[] { '?', '#' });
+        if (suffix >= 0) normalized = normalized.Substring(0, suffix);
+        var parts = normalized.Split('/');
+        var filename = parts[parts.Length - 1];
+        // Unity's cache also exposes the exact bundle/hash/__data layout.
+        if (string.Equals(filename, "__data", StringComparison.Ordinal) && parts.Length >= 2)
+            return string.Equals(parts[parts.Length - 2], hash, StringComparison.OrdinalIgnoreCase);
+
+        for (var start = 0; start <= filename.Length - hash.Length;)
+        {
+            var index = filename.IndexOf(hash, start, StringComparison.OrdinalIgnoreCase);
+            if (index < 0) return false;
+            var end = index + hash.Length;
+            if ((index == 0 || !char.IsLetterOrDigit(filename[index - 1])) &&
+                (end == filename.Length || !char.IsLetterOrDigit(filename[end])))
+                return true;
+            start = index + 1;
+        }
+        return false;
+    }
+
     private static bool MatchesPreparedGame(BundleIdentity identity)
     {
+        string route;
         string version;
         string revision;
         lock (Sync)
         {
+            route = ActiveRoute;
             version = PreparedGameVersion;
             revision = PreparedRevision;
         }
         if (string.IsNullOrEmpty(version) || string.IsNullOrEmpty(revision)) return true;
 
-        // The runtime location normally contains .../<game version>/<revision>/....
-        // If it does, require the manifest to describe that exact game build.
-        // Some Addressables interop paths expose only the bundle options; those
-        // are still protected by the exact bundleName/hash match below.
-        var text = (identity.InternalId ?? string.Empty) + "|" +
-                   (identity.TransformedInternalId ?? string.Empty);
-        var normalized = text.Replace('\\', '/');
-        var expected = "/" + version + "/" + revision + "/";
-        if (normalized.IndexOf("/" + version + "/", StringComparison.OrdinalIgnoreCase) < 0)
-            return true;
-        return normalized.IndexOf(expected, StringComparison.OrdinalIgnoreCase) >= 0;
+        // CDN locations carry route/version/revision before an optional token
+        // directory. Reject any explicit conflicting build, including one in
+        // another identity field. Local StreamingAssets paths have no CDN build.
+        foreach (var path in new[] { identity.InternalId, identity.TransformedInternalId, identity.PrimaryKey })
+        {
+            if (string.IsNullOrEmpty(path)) continue;
+            var parts = path.Replace('\\', '/').Split('/');
+            for (var i = 0; i < parts.Length; i++)
+            {
+                if (!string.Equals(parts[i], "INT_STEAM", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(parts[i], "CN_STEAM", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!string.Equals(parts[i], route, StringComparison.OrdinalIgnoreCase) ||
+                    i + 2 >= parts.Length ||
+                    !string.Equals(parts[i + 1], version, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(parts[i + 2], revision, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+        }
+        return true;
     }
 
     private static BundleIdentity ReadIdentity(object resource, object[] args)
