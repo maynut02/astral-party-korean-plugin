@@ -23,11 +23,13 @@ def sha256(data: bytes) -> str:
 
 HARNESS = r'''
 using System;
+using System.ComponentModel;
 using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security.Authentication;
 using System.Text.Json;
 
 internal static class AstralBuildVersion { public const string Value = "1.0.0"; }
@@ -54,6 +56,13 @@ internal sealed class OfflineProxy : IWebProxy
 internal static class Program
 {
     private const BindingFlags PrivateStatic = BindingFlags.NonPublic | BindingFlags.Static;
+
+    private static void ThrowTlsFailure()
+    {
+        throw new HttpRequestException("The SSL connection could not be established, see inner exception.",
+            new AuthenticationException("Simulated certificate chain failure",
+                new Win32Exception(unchecked((int)0x800B0109), "Simulated untrusted root")));
+    }
 
     public static void Main(string[] args)
     {
@@ -93,6 +102,19 @@ internal static class Program
             }
 
             var name = step.GetProperty("method").GetString()!;
+            if (name == "LogException")
+            {
+                try { ThrowTlsFailure(); }
+                catch (Exception ex)
+                {
+                    var error = step.GetProperty("aggregate").GetBoolean()
+                        ? new AggregateException(ex, new IOException("Simulated second failure")) : ex;
+                    preloader.GetMethod(name, PrivateStatic)!.Invoke(null,
+                        new object?[] { "online-update-failed", error });
+                }
+                results.Add(new { method = name, value = true });
+                continue;
+            }
             object?[] parameters = name switch
             {
                 "VerifySource" => new object?[] { state },
@@ -266,7 +288,7 @@ def cache(tmp_path_factory, request):
         "payloadRootPath": "payloads",
         "legacyReplacementPath": "patched-data.unity3d",
     }.items()}
-    paths.update(route=route, sourcePath=str(source))
+    paths.update(route=route, sourcePath=str(source), logPath=str(tmp_path / "data-redirect.log"))
     result = Cache(tmp_path, route, source, paths)
     result.catalog("3.2")
     return result
@@ -274,6 +296,25 @@ def cache(tmp_path_factory, request):
 
 def step(method: str, allow_download: bool = False, **changes) -> dict:
     return dict(method=method, allowDownload=allow_download, **changes)
+
+
+@pytest.mark.parametrize("aggregate", [False, True])
+def test_failure_log_contains_nested_tls_exceptions_and_stack_traces(
+    preloader_runtime, cache, aggregate
+):
+    release = cache.release("3.2", ORIGINAL_32)
+    results = preloader_runtime(cache, release.state, dict(method="LogException", aggregate=aggregate))
+    assert results[0]["value"] is True
+    log = Path(cache.paths["logPath"]).read_text(encoding="utf-8")
+    assert "online-update-failed type=System." in log
+    assert "System.Net.Http.HttpRequestException" in log
+    assert "hresult=0x" in log
+    assert "System.Security.Authentication.AuthenticationException: Simulated certificate chain failure" in log
+    assert "System.ComponentModel.Win32Exception" in log
+    assert "Simulated untrusted root" in log
+    assert "at Program.ThrowTlsFailure" in log
+    if aggregate:
+        assert "System.IO.IOException: Simulated second failure" in log
 
 
 def test_exact_original_source_and_cached_replacement_are_accepted(preloader_runtime, cache):

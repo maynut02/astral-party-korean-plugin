@@ -133,8 +133,7 @@ public sealed class DataUnity3dRedirect : BasePatcher
         catch (Exception ex)
         {
             DeleteSessionMarker();
-            Log("initialize-failed type=" + ex.GetType().FullName + " message=" + ex.Message +
-                "; patch disabled for this process");
+            LogException("initialize-failed", ex);
         }
         finally
         {
@@ -218,7 +217,7 @@ public sealed class DataUnity3dRedirect : BasePatcher
         }
         catch (Exception onlineError)
         {
-            Log("online-update-failed type=" + onlineError.GetType().Name + " message=" + onlineError.Message);
+            LogException("online-update-failed", onlineError);
             if (activeState != null && PrepareExistingState(activeState, allowDownload: false))
             {
                 SaveState(activeState);
@@ -250,7 +249,7 @@ public sealed class DataUnity3dRedirect : BasePatcher
         }
         catch (Exception ex)
         {
-            Log("active-cache-prepare-failed type=" + ex.GetType().Name + " message=" + ex.Message);
+            LogException("active-cache-prepare-failed", ex);
             return false;
         }
     }
@@ -793,7 +792,7 @@ public sealed class DataUnity3dRedirect : BasePatcher
         }
         catch (Exception ex)
         {
-            Log("addressables-cache-failed type=" + ex.GetType().Name + " message=" + ex.Message);
+            LogException("addressables-cache-failed", ex);
             return false;
         }
     }
@@ -1252,6 +1251,15 @@ public sealed class DataUnity3dRedirect : BasePatcher
     {
         if (value.Length != length || value.Any(c => !Uri.IsHexDigit(c)))
             throw new InvalidDataException("invalid " + label);
+    }
+
+    private static void LogException(string eventName, Exception exception)
+    {
+        // ToString includes every inner exception (including AggregateException branches)
+        // and their stack traces, which Message alone omits for TLS failures.
+        Log(eventName + " type=" + exception.GetType().FullName +
+            " message=" + exception.Message + " hresult=0x" + exception.HResult.ToString("X8") +
+            Environment.NewLine + exception.ToString());
     }
 
     private static new void Log(string message)

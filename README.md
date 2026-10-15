@@ -92,7 +92,7 @@ Steam에서 게임을 실행하면 한글패치 확인과 다운로드 진행 �
 
 해결되지 않으면 [Issues](https://github.com/maynut02/astral-party-korean-plugin/issues)에 플러그인 버전, 글로벌판·중국판 여부, 게임 버전, 재현 방법과 아래 로그의 관련 내용을 알려주세요. 공개 전에 개인 경로는 가려주세요.
 
-- `BepInEx/data-redirect.log` — 시작 시 리소스 확인·다운로드·검증
+- `BepInEx/data-redirect.log` — 시작 시 리소스 확인·다운로드·검증. 준비 실패 시 내부 예외와 스택 추적까지 기록하므로 오류 줄 아래의 상세 내용도 함께 전달하세요.
 - `BepInEx/AstralPartyKoreanPatch/addressables-patch.jsonl` — 게임 내 리소스 연결과 적용 상태
 - `BepInEx/LogOutput.txt` — BepInEx와 플러그인 로딩
 
