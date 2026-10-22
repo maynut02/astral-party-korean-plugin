@@ -11,8 +11,8 @@ $tag = 'v0.0.1'
 $zipName = "AstralPartyKoreanPlugin-$tag.zip"
 $assetNames = @($zipName, 'SHA256SUMS.txt')
 $dllEntry = @(
-    'BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll'
-    'BepInEx/plugins/AstralPartyKoreanPatch/AstralPartyKoreanPlugin.dll'
+    'BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle'
+    'BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll'
 )
 $otherSha = '1' * 40
 $script:passed = 0
@@ -211,15 +211,15 @@ function Assert-InstallationNotes([string]$Notes, [string]$Tag = 'v0.0.1') {
     foreach ($token in @(
         'BepInEx 6', 'Unity IL2CPP Windows x64', "AstralPartyKoreanPlugin-$Tag.zip",
         'BepInEx/config/BepInEx.cfg', '### 기존 버전에서 업데이트',
-        'AstralParty.DataUnity3dRedirect.dll', 'AstralParty.AddressablesInProcessPatch.dll'
+        '2.x', '자동 삭제', 'translation-pack/latest.json', 'translation-pack/'
     )) {
         Assert-True ($Notes.Contains($token)) "Installation notes are missing: $token"
     }
     Assert-True ($Notes -match '(?m)^\s*\|[^\r\n]*글로벌판[^\r\n]*8vJXnINT[^\r\n]*AstralParty_INT\.exe[^\r\n]*\|') 'Global installation table row is missing.'
     Assert-True ($Notes -match '(?m)^\s*\|[^\r\n]*중국판[^\r\n]*8vJXn6CN[^\r\n]*AstralParty_CN\.exe[^\r\n]*\|') 'Chinese installation table row is missing.'
     # Installation paths may be shown as full paths or as a fenced directory tree.
-    Assert-True ($Notes.Contains($dllEntry[0]) -or $Notes -match '(?m)^BepInEx/\r?\n(?:[^\r\n]*\r?\n)*?[^\r\n]*patchers/\r?\n[^\r\n]*AstralPartyKoreanPlugin\.dataUnity3dRedirect\.dll') 'Patcher DLL installation path is missing.'
-    Assert-True ($Notes.Contains($dllEntry[1]) -or $Notes -match '(?m)^BepInEx/\r?\n(?:[^\r\n]*\r?\n)*?[^\r\n]*plugins/\r?\n[^\r\n]*AstralPartyKoreanPatch/\r?\n[^\r\n]*AstralPartyKoreanPlugin\.dll') 'Plugin DLL installation path is missing.'
+    Assert-True ($Notes.Contains($dllEntry[0]) -or $Notes -match '(?m)^BepInEx/\r?\n(?:[^\r\n]*\r?\n)*?[^\r\n]*plugins/\r?\n[^\r\n]*AstralPartyKoreanPlugin/\r?\n(?:[^\r\n]*\r?\n)*?[^\r\n]*astralkorean_fonts\.bundle') 'Font bundle installation path is missing.'
+    Assert-True ($Notes.Contains($dllEntry[1]) -or $Notes -match '(?m)^BepInEx/\r?\n(?:[^\r\n]*\r?\n)*?[^\r\n]*plugins/\r?\n[^\r\n]*AstralPartyKoreanPlugin/\r?\n[^\r\n]*AstralPartyKoreanPlugin\.dll') 'Plugin DLL installation path is missing.'
     Assert-True ($Notes -match '\[[^\]\r\n]*README[^\]\r\n]*\]\([^)]+\)|\[[^\]\r\n]+\]\([^)]*README[^)]*\)|\[[^\]\r\n]+\]\(https://github\.com/maynut02/astral-party-korean-plugin#설치\)') 'Installation notes are missing a README link.'
     Assert-True (-not $Notes.Contains("`r") -and $Notes.EndsWith("`n")) 'Generated notes are not LF Markdown.'
 }
@@ -1007,7 +1007,7 @@ try {
         }
     }
 
-    foreach ($kind in @('extra-entry', 'wrong-installation-path', 'extra-license', 'extra-installation-instructions', 'missing-patcher-dll', 'missing-plugin-dll')) {
+    foreach ($kind in @('extra-entry', 'wrong-installation-path', 'extra-license', 'extra-installation-instructions', 'missing-font-bundle', 'missing-plugin-dll')) {
         Test-Case "zip-$kind-is-rejected-before-gh" {
             $f = New-Fixture
             $entries = switch -CaseSensitive ($kind) {
@@ -1015,11 +1015,11 @@ try {
                 'wrong-installation-path' { @($dllEntry[0], 'AstralPartyKoreanPlugin.dll') }
                 'extra-license' { $dllEntry + @('LICENSE') }
                 'extra-installation-instructions' { $dllEntry + @('적용방법.txt') }
-                'missing-patcher-dll' { @($dllEntry[1]) }
+                'missing-font-bundle' { @($dllEntry[1]) }
                 'missing-plugin-dll' { @($dllEntry[0]) }
             }
             Write-TestZip $f $entries
-            Assert-Rejected $f 'Release ZIP must contain only the two plugin DLLs at their installation paths.'
+            Assert-Rejected $f 'Release ZIP must contain only the plugin DLL and font bundle at their installation paths.'
             Assert-NoCalls $f
         }
     }

@@ -35,13 +35,13 @@ function New-ManagedFixture([string]$Name, [string]$FixtureVersion, [string]$Dir
     return Join-Path $outputRoot "$Name.dll"
 }
 
-$dllNames = @('AstralPartyKoreanPlugin.dataUnity3dRedirect.dll', 'AstralPartyKoreanPlugin.dll')
+$dllNames = @('AstralPartyKoreanPlugin.dll')
 $goodDlls = @{}
 $wrongVersions = @{}
 foreach ($name in $dllNames) {
     $assemblyName = [IO.Path]::GetFileNameWithoutExtension($name)
     # Keep .NET 6 MSBuild's intermediate file paths below Windows MAX_PATH.
-    $fixtureName = if ($name -eq $dllNames[0]) { 'preloader' } else { 'plugin' }
+    $fixtureName = 'plugin'
     $goodDlls[$name] = New-ManagedFixture $assemblyName $version (Join-Path $testRoot "assembly/$fixtureName")
     $wrongVersions[$name] = New-ManagedFixture $assemblyName $otherVersion (Join-Path $testRoot "wrong-version/$fixtureName")
 }
@@ -54,6 +54,11 @@ $inputRoot = Join-Path $automaticRoot 'build-input'
 Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts/package-release.ps1'), (Join-Path $repoRoot 'scripts/project-version.ps1'), (Join-Path $repoRoot 'scripts/package-files.ps1') -Destination $automaticScripts
 [IO.File]::WriteAllText((Join-Path $automaticRoot 'VERSION'), $version, $utf8)
 foreach ($name in $dllNames) { Copy-Item -LiteralPath $goodDlls[$name] -Destination (Join-Path $inputRoot $name) }
+$fontName = 'astralkorean_fonts.bundle'
+$fontSource = Join-Path $repoRoot "assets/fonts/$fontName"
+Copy-Item -LiteralPath $fontSource -Destination (Join-Path $inputRoot $fontName)
+$goodFiles = @{ $fontName = $fontSource }
+$goodFiles[$dllNames[0]] = $goodDlls[$dllNames[0]]
 $buildStub = @'
 param([string]$Version = '', [string]$GameRoot = 'fixture-default-game', [string]$RefsRoot = '',
     [string]$WorkRoot = '', [string]$OutputRoot = '', [string]$DotNetPath = '')
@@ -63,7 +68,7 @@ $call = @{ Version = $Version; GameRoot = $GameRoot; RefsRoot = $RefsRoot; WorkR
 if (Test-Path -LiteralPath (Join-Path $root 'fail-build')) { throw 'Fixture build failed.' }
 if (-not $OutputRoot) { $OutputRoot = Join-Path $root 'dist' }
 [IO.Directory]::CreateDirectory($OutputRoot) | Out-Null
-foreach ($name in @('AstralPartyKoreanPlugin.dataUnity3dRedirect.dll', 'AstralPartyKoreanPlugin.dll')) {
+foreach ($name in @('AstralPartyKoreanPlugin.dll', 'astralkorean_fonts.bundle')) {
     if (Test-Path -LiteralPath (Join-Path $root "omit-$name")) {
         $missingOutput = Join-Path $OutputRoot $name
         if (Test-Path -LiteralPath $missingOutput) { Remove-Item -LiteralPath $missingOutput }
@@ -78,10 +83,10 @@ $package = Join-Path $automaticScripts 'package-release.ps1'
 $assets = Join-Path $automaticRoot "dist/release/$tag"
 $buildRoot = Join-Path $automaticRoot 'dist'
 $callsPath = Join-Path $automaticRoot 'build-calls.jsonl'
-$expectedNames = @($dllNames) + @('build-references.json', 'windows-plugin-build.json', $zipName, 'SHA256SUMS.txt')
+$expectedNames = @($dllNames) + @($fontName, 'build-references.json', 'windows-plugin-build.json', $zipName, 'SHA256SUMS.txt')
 $zipEntries = [ordered]@{
-    'BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll' = $dllNames[0]
-    'BepInEx/plugins/AstralPartyKoreanPatch/AstralPartyKoreanPlugin.dll' = $dllNames[1]
+    'BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll' = $dllNames[0]
+    'BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle' = $fontName
 }
 
 function Get-BuildCallCount {
@@ -119,23 +124,23 @@ function Assert-Package([string]$Root = $assets) {
         ($actualNames -join ',') -cne (($expectedNames | Sort-Object) -join ',')) {
         throw 'Release output must contain exactly the six expected files.'
     }
-    foreach ($name in $dllNames) {
-        if ((Get-FileHash -LiteralPath (Join-Path $Root $name)).Hash -cne (Get-FileHash -LiteralPath $goodDlls[$name]).Hash) {
-            throw "Standalone DLL differs from the fresh build: $name"
+    foreach ($name in $goodFiles.Keys) {
+        if ((Get-FileHash -LiteralPath (Join-Path $Root $name)).Hash -cne (Get-FileHash -LiteralPath $goodFiles[$name]).Hash) {
+            throw "Standalone file differs from the fresh build: $name"
         }
     }
     $archive = [IO.Compression.ZipFile]::OpenRead((Join-Path $Root $zipName))
     try {
         if ($archive.Entries.Count -ne 2 -or
             (($archive.Entries.FullName | Sort-Object) -join ',') -cne (($zipEntries.Keys | Sort-Object) -join ',')) {
-            throw 'ZIP must contain only the preloader and plugin at their installation paths.'
+            throw 'ZIP must contain only the plugin DLL and font bundle at their installation paths.'
         }
         foreach ($entry in $archive.Entries) {
             $name = $zipEntries[$entry.FullName]
             $extracted = Join-Path $testRoot "extracted-$name"
             [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $extracted, $true)
-            if ((Get-FileHash -LiteralPath $extracted).Hash -cne (Get-FileHash -LiteralPath $goodDlls[$name]).Hash) {
-                throw "Packaged DLL differs from the fresh build: $name"
+            if ((Get-FileHash -LiteralPath $extracted).Hash -cne (Get-FileHash -LiteralPath $goodFiles[$name]).Hash) {
+                throw "Packaged file differs from the fresh build: $name"
             }
         }
     } finally { $archive.Dispose() }
@@ -152,15 +157,16 @@ function Assert-Package([string]$Root = $assets) {
     }
     if ($metadata.package.file -cne $zipName -or $metadata.package.sha256 -cne $zipHash -or
         $metadata.package.size -ne (Get-Item -LiteralPath $zipPath).Length) { throw 'Package metadata differs from the ZIP.' }
-    foreach ($component in @(@{ Name = $dllNames[0]; Metadata = $metadata.preloader }, @{ Name = $dllNames[1]; Metadata = $metadata.plugin })) {
+    foreach ($component in @(@{ Name = $dllNames[0]; Metadata = $metadata.plugin }, @{ Name = $fontName; Metadata = $metadata.fontBundle })) {
         $hash = (Get-FileHash -LiteralPath (Join-Path $Root $component.Name) -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($component.Metadata.version -cne $version -or $component.Metadata.sha256 -cne $hash) {
-            throw "DLL metadata differs: $($component.Name)"
+        if ($component.Metadata.sha256 -cne $hash) {
+            throw "File metadata differs: $($component.Name)"
         }
     }
+    if ($metadata.plugin.version -cne $version) { throw 'Plugin version differs.' }
 }
 
-Invoke-PackageCase 'default packaging builds once and produces exact two-DLL ZIP, six assets and verified metadata' {
+Invoke-PackageCase 'default packaging builds once and produces exact two-file ZIP, six assets and verified metadata' {
     & $package | Out-Null
     Assert-Package
     if ((Get-BuildCallCount) -ne 1) { throw 'Default package did not build exactly once.' }
@@ -169,8 +175,8 @@ Invoke-PackageCase 'default packaging builds once and produces exact two-DLL ZIP
         throw 'Default package did not pass VERSION and its build output or retain the build default game root.'
     }
 }
-Invoke-PackageCase 'repeated default packaging rebuilds both stale DLLs and replaces obsolete ZIP entries' {
-    foreach ($name in $dllNames) { [IO.File]::WriteAllText((Join-Path $buildRoot $name), 'stale DLL', $utf8) }
+Invoke-PackageCase 'repeated default packaging rebuilds stale files and replaces obsolete ZIP entries' {
+    foreach ($name in $goodFiles.Keys) { [IO.File]::WriteAllText((Join-Path $buildRoot $name), 'stale file', $utf8) }
     $archive = [IO.Compression.ZipFile]::Open((Join-Path $assets $zipName), [IO.Compression.ZipArchiveMode]::Update)
     try { $archive.CreateEntry('obsolete.txt') | Out-Null } finally { $archive.Dispose() }
     & $package | Out-Null
@@ -254,6 +260,15 @@ foreach ($name in $dllNames) {
         }
     }
 }
+Invoke-PackageCase 'missing font bundle preserves every existing release asset' {
+    $before = Get-ReleaseHashes $assets
+    $omit = Join-Path $automaticRoot "omit-$fontName"
+    [IO.File]::WriteAllText($omit, '', $utf8)
+    try {
+        Assert-Rejected @{} ''
+        if ((Get-ReleaseHashes $assets) -cne $before) { throw 'Missing font bundle changed release assets.' }
+    } finally { Remove-Item -LiteralPath $omit }
+}
 Invoke-PackageCase 'failed default build preserves every existing release asset' {
     $before = Get-ReleaseHashes $assets
     [IO.File]::WriteAllText((Join-Path $automaticRoot 'fail-build'), '', $utf8)
@@ -269,8 +284,8 @@ Invoke-PackageCase 'missing ZIP source preserves old ZIP, checksums and metadata
     . (Join-Path $automaticScripts 'package-files.ps1')
     $before = Get-ReleaseHashes $assets
     $files = [ordered]@{
-        'BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll' = $goodDlls[$dllNames[0]]
-        'BepInEx/plugins/AstralPartyKoreanPatch/AstralPartyKoreanPlugin.dll' = (Join-Path $testRoot 'missing-source.dll')
+        'BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll' = $goodDlls[$dllNames[0]]
+        'BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle' = (Join-Path $testRoot 'missing-source.bundle')
     }
     $failed = $false
     try { New-AstralPluginPackage -Files $files -OutputRoot $assets -ZipName $zipName | Out-Null } catch [IO.FileNotFoundException] { $failed = $true }

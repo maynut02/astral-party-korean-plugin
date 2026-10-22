@@ -3,15 +3,16 @@
 function Get-AstralReferencePaths {
     @(
         'core/BepInEx.Core.dll'
-        'core/BepInEx.Preloader.Core.dll'
         'core/BepInEx.Unity.IL2CPP.dll'
         'core/0Harmony.dll'
         'core/Il2CppInterop.Runtime.dll'
         'interop/Il2Cppmscorlib.dll'
+        'interop/AppConfig.dll'
+        'interop/Unity.TextMeshPro.dll'
+        'interop/UnityEngine.TextCoreFontEngineModule.dll'
         'interop/UnityEngine.CoreModule.dll'
         'interop/UnityEngine.TextRenderingModule.dll'
         'interop/UnityEngine.AssetBundleModule.dll'
-        'interop/UnityEngine.UIModule.dll'
         'interop/UnityEngine.InputLegacyModule.dll'
         'interop/UnityEngine.UI.dll'
     )
@@ -55,6 +56,18 @@ function Sync-AstralReferences([string]$GameRoot, [string]$WorkRoot) {
         New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
         if ([IO.Path]::GetFullPath($source) -ine [IO.Path]::GetFullPath($target)) {
             Copy-Item -LiteralPath $source -Destination $target -Force
+        }
+    }
+    # Drop references this script copied before but no longer requires; unlisted files stay.
+    $metadataPath = Join-Path $targetRoot 'versions.json'
+    if (Test-Path -LiteralPath $metadataPath -PathType Leaf) {
+        $required = @(Get-AstralReferencePaths)
+        foreach ($entry in @((Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json).references)) {
+            $relative = [string]$entry.file
+            if ($relative -notin $required -and $relative -match '^(core|interop)/[^/\\]+\.dll$') {
+                $stale = Join-Path $targetRoot $relative
+                if (Test-Path -LiteralPath $stale -PathType Leaf) { Remove-Item -LiteralPath $stale -Force }
+            }
         }
     }
     [ordered]@{ references = @(Get-AstralReferenceVersions $targetRoot) } |

@@ -9,13 +9,18 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED = {
-    "BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll": "preloader",
-    "BepInEx/plugins/AstralPartyKoreanPatch/AstralPartyKoreanPlugin.dll": "plugin",
+    "BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle": "fontBundle",
+    "BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll": "plugin",
 }
 
 
+VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+CURRENT_METADATA = ROOT / f"dist/release/v{VERSION}/windows-plugin-build.json"
+
+
+# Older release folders keep the layout of their own version; only the current one must match.
 @pytest.fixture(
-    params=sorted((ROOT / "dist/release").glob("v*/windows-plugin-build.json")) or [None],
+    params=[CURRENT_METADATA if CURRENT_METADATA.exists() else None],
     ids=lambda path: path.parent.name if path else "not-built",
 )
 def package(request):
@@ -35,9 +40,13 @@ def test_zip_contains_exactly_plugin_files(package) -> None:
         for name, component in EXPECTED.items():
             data = archive.read(name)
             assert data
-            assert data[:2] == b"MZ"
             assert hashlib.sha256(data).hexdigest() == metadata[component]["sha256"]
-            assert metadata[component]["version"] == metadata["packageVersion"]
+            if component == "plugin":
+                assert data[:2] == b"MZ"
+                assert metadata[component]["version"] == metadata["packageVersion"]
+            else:
+                assert data.startswith(b"UnityFS")
+                assert data == (ROOT / "assets/fonts/astralkorean_fonts.bundle").read_bytes()
 
 
 def test_package_metadata_and_checksum_match_actual_zip(package) -> None:

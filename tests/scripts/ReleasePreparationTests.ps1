@@ -25,16 +25,16 @@ function Assert-InstallationNotes([string]$Notes, [string]$Tag) {
     foreach ($token in @(
         'BepInEx 6', 'Unity IL2CPP Windows x64', "AstralPartyKoreanPlugin-$Tag.zip",
         'BepInEx/config/BepInEx.cfg',
-        '### 기존 버전에서 업데이트', 'AstralParty.DataUnity3dRedirect.dll',
-        'AstralParty.AddressablesInProcessPatch.dll'
+        '### 기존 버전에서 업데이트', '2.x', '자동 삭제',
+        'translation-pack/latest.json', 'translation-pack/', 'astralkorean_fonts.bundle'
     )) {
         Assert-True ($Notes.Contains($token)) "Installation notes are missing: $token"
     }
     Assert-True ($Notes -match '(?m)^\s*\|[^\r\n]*글로벌판[^\r\n]*8vJXnINT[^\r\n]*AstralParty_INT\.exe[^\r\n]*\|') 'Global installation table row is missing.'
     Assert-True ($Notes -match '(?m)^\s*\|[^\r\n]*중국판[^\r\n]*8vJXn6CN[^\r\n]*AstralParty_CN\.exe[^\r\n]*\|') 'Chinese installation table row is missing.'
     # Installation paths may be shown as full paths or as a fenced directory tree.
-    Assert-True ($Notes.Contains('BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll') -or $Notes -match '(?m)^BepInEx/\r?\n(?:[^\r\n]*\r?\n)*?[^\r\n]*patchers/\r?\n[^\r\n]*AstralPartyKoreanPlugin\.dataUnity3dRedirect\.dll') 'Patcher DLL installation path is missing.'
-    Assert-True ($Notes.Contains('BepInEx/plugins/AstralPartyKoreanPatch/AstralPartyKoreanPlugin.dll') -or $Notes -match '(?m)^BepInEx/\r?\n(?:[^\r\n]*\r?\n)*?[^\r\n]*plugins/\r?\n[^\r\n]*AstralPartyKoreanPatch/\r?\n[^\r\n]*AstralPartyKoreanPlugin\.dll') 'Plugin DLL installation path is missing.'
+    Assert-True ($Notes -match '(?m)^BepInEx/\r?\n(?:[^\r\n]*\r?\n)*?[^\r\n]*plugins/\r?\n[^\r\n]*AstralPartyKoreanPlugin/\r?\n(?:[^\r\n]*\r?\n)*?[^\r\n]*astralkorean_fonts\.bundle') 'Font bundle installation path is missing.'
+    Assert-True ($Notes.Contains('BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll') -or $Notes -match '(?m)^BepInEx/\r?\n(?:[^\r\n]*\r?\n)*?[^\r\n]*plugins/\r?\n[^\r\n]*AstralPartyKoreanPlugin/\r?\n[^\r\n]*AstralPartyKoreanPlugin\.dll') 'Plugin DLL installation path is missing.'
     Assert-True ($Notes -match '\[[^\]\r\n]*README[^\]\r\n]*\]\([^)]+\)|\[[^\]\r\n]+\]\([^)]*README[^)]*\)|\[[^\]\r\n]+\]\(https://github\.com/maynut02/astral-party-korean-plugin#설치\)') 'Installation notes are missing a README link.'
 }
 function Assert-CommitNotes([string]$Notes, [object[]]$Commits) {

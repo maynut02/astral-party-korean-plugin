@@ -1,105 +1,111 @@
 # 코드 구조와 실행 흐름
 
-한글패치는 프리로더와 런타임 플러그인으로 나뉩니다. 설치는 [README](../README.md), 빌드·검증은 [개발 문서](development.md), 배포는 [릴리즈 문서](releases.md)를 참고하세요.
+게임 원본 파일을 바꾸지 않고, 읽는 텍스트와 사용하는 폰트를 런타임에서 교체합니다. 게임 버전별 교체 번들이나 파일 접근 후킹은 사용하지 않습니다.
 
-## 주요 구성
+## 구성
 
-| 파일 | 역할 |
-| --- | --- |
-| `src/Preloader/DataUnity3dRedirect.cs` | 리소스 릴리즈 확인, 다운로드·검증, 캐시와 session 기록, `data.unity3d` 접근 전환, 시작 진행 창 |
-| `src/Plugin/AddressablesInProcessPatch.cs` | 현재 프로세스의 캐시 준비, Addressables 로드 경로 전환, 상태 오버레이와 입력 처리 |
-| `Directory.Build.props`, `Directory.Build.targets` | 참조 경로 선택, `VERSION` 검증과 `obj`의 버전 상수 생성 |
-| `scripts/reference-files.ps1`, `scripts/dotnet-sdk.ps1` | 환경 준비와 빌드가 공유하는 참조·SDK 처리 |
-| `scripts/build.ps1`, `scripts/package-release.ps1`, `scripts/package-files.ps1` | DLL 빌드, 공통 ZIP·체크섬 처리와 버전별 패키징 |
-| `scripts/project-version.ps1`, `scripts/release-notes.ps1` | 버전 정책과 릴리즈 설명 생성 |
-| `scripts/check.ps1`, `scripts/test.ps1`, `tests/` | 전체 검사와 런타임 회귀 검사 |
+- `src/Plugin/`: BepInEx 6 IL2CPP 플러그인, Harmony 후킹, 번역 팩 클라이언트, 폰트 적용, 상태 오버레이
+- `assets/fonts/astralkorean_fonts.bundle`: 배포하는 폰트 번들의 원본
+- `tools/FontBundleBuilder/`: 폰트 번들을 수동 재생성하는 도구. 일반 빌드·CI에서는 실행하지 않음
+- `Directory.Build.props`, `Directory.Build.targets`: 참조 경로 선택, `VERSION` 검증, `AstralBuildVersion.Value` 생성
+- `scripts/`: 참조 준비, 플러그인 빌드, 두 파일 패키징과 릴리즈 처리
 
-DLL 이름과 BepInEx 식별자는 별개입니다. 두 DLL은 아래 GUID와 공통 `AstralBuildVersion.Value`를 사용합니다.
+## 시작과 번역 팩
 
-| DLL | GUID |
-| --- | --- |
-| `AstralPartyKoreanPlugin.dataUnity3dRedirect.dll` | `astral-party.korean-patch.data-redirect` |
-| `AstralPartyKoreanPlugin.dll` | `astral-party.korean-patch.addressables-in-process` |
+1. 실행 파일·데이터 폴더로 글로벌판(INT) 또는 중국판(CN)을 판별합니다.
+2. 구형 설치를 정리합니다. 새 설치 위치는 `BepInEx/plugins/AstralPartyKoreanPlugin/`입니다. 업그레이드 시 이전 플러그인 폴더는 재귀 삭제하고 로드 중인 DLL은 가능하면 `.removed`로 바꿔 다음 실행에서 지웁니다. 실행 중인 DLL이 구형 폴더 안에 있으면(디렉터리 링크로 접근한 경우 포함) 그 폴더는 보존하고 알려진 구형 캐시만 정리합니다. 실패 시 로그와 상태창을 확인하고 [업데이트 안내](../README.md#2x에서-업데이트하는-경우)에 따라 게임 종료 후 직접 삭제하세요.
+3. `https://file.maynutlab.com/translation-pack/latest.json`에서 최신 번역 팩 포인터를 확인합니다. `schemaVersion: 1`, `locale: ko`를 사용합니다.
+4. 캐시보다 큰 `number`만 새 팩으로 취급합니다. `version`·`revision`·`publishedAt`은 표시·기록용이며 게임 버전과 비교하지 않습니다. 작은 번호로 되돌아가지 않습니다.
+5. 포인터의 `path`에 있는 gzip 팩을 검증하고 캐시에 저장합니다. 캐시는 설치 폴더명이 아니라 실행 중인 DLL의 디렉터리에서 구한 `translation-pack/`입니다. `latest.json`과 `{number}.json.gz`를 저장하고 이전 팩을 정리합니다. 팩 파일을 먼저 쓰고 포인터를 마지막에 교체하여 중단된 갱신이 기존 캐시를 깨뜨리지 않게 합니다.
+6. 준비한 팩을 이번 세션 동안 고정합니다. 실행 중 팩이 배포되어도 이미 읽은 에셋과 다른 세대의 번역을 섞지 않으며 다음 게임 실행에서 갱신합니다.
 
-## 실행 흐름
+네트워크 확인·다운로드에 실패하면 검증된 캐시를 사용합니다. 유효한 팩이 없으면 원문을 표시합니다. 플러그인 자체 업데이트는 `https://api.github.com/repos/maynut02/astral-party-korean-plugin/releases/latest`에서 별도로 확인합니다.
 
-1. 프리로더는 게임 폴더 `8vJXnINT`·`8vJXn6CN` 또는 프로세스 이름 `AstralParty_INT`·`AstralParty_CN`으로 route를 판별하고 이전 세션 기록을 삭제합니다.
-2. 최신 리소스 릴리즈를 확인합니다. ETag·릴리즈 태그·manifest 해시를 이용해 캐시를 재사용하거나 새 manifest와 payload를 준비합니다.
-3. 설치된 원본 `data.unity3d`가 manifest의 원본 크기·SHA-256과 일치하고, 교체용 `data.unity3d`와 모든 Addressables payload가 준비된 뒤에만 `data-unity3d-state.json`을 원자적으로 갱신합니다. 새 릴리즈 준비 실패로 활성 상태를 먼저 바꾸지 않습니다.
-4. PID·프로세스 시작 시각과 활성 리소스 정보를 `preloader-session.json`에 기록하고 `BepInEx/core/dobby.dll`로 `CreateFileW`를 후킹합니다. 후킹 실패 시 세션 기록을 삭제합니다.
-5. 런타임은 같은 프로세스의 세션·상태·manifest를 확인하고 로컬 payload 목록을 준비합니다. 첫 `GetLoadInfo` 호출은 준비 작업을 최대 45초 기다립니다.
-6. 대상 번들 요청에서 `AssetBundleResource.GetLoadInfo`의 로드 종류를 `Local`, 경로를 캐시 payload로 바꿉니다. 비동기 로드와 의존성 관리는 원래 Addressables provider가 수행합니다.
+### 번역 팩 형식과 검증
 
-`CreateFileW`는 원본 `data.unity3d`의 정확한 경로를 교체 캐시 경로로 전환합니다. 게임 원본 파일이나 Addressables의 `__data`·catalog 파일을 덮어쓰지 않습니다. 런타임은 리소스를 직접 다운로드하지 않습니다.
+사이트 관리자 페이지의 `번역 팩 배포`가 승인된 한국어 번역 전체를 하나의 팩으로 게시합니다. 생성 코드는 사이트 저장소의 `server/utils/translation-pack.ts`, 운영 절차는 그 저장소의 `deploy/README.md`에 있습니다.
 
-런타임은 실제 요청의 번들 이름과 해시를 함께 비교합니다. IL2CPP에서 번들 옵션이 아직 없으면 `PrimaryKey`·`InternalId`·변환된 InternalId의 정확한 번들 해시로 찾습니다. 이미 알려진 옵션과 충돌하는 요청은 파일명으로 우회하지 않습니다. CDN 위치가 route·게임 버전·revision을 노출하면 준비된 패치와 모두 일치해야 합니다. `012/TmvW1l` 같은 추가 경로도 허용합니다.
-
-오버레이는 Addressables 콜백에서 Unity 기본 UI로 만들고 갱신합니다. `EventSystem.Update`에서 닫기 입력을 처리하고, 패널 위의 왼쪽 마우스 입력이 게임 컨트롤에 전달되지 않도록 처리합니다.
-
-## 외부 연동과 검증
-
-번역 리소스는 [한글패치 리소스 Releases](https://github.com/maynut02/astral-party-korean-patch/releases)에서 가져옵니다. DLL 배포 저장소와 별개이며 리소스 릴리즈 태그와 제품 버전도 별개입니다.
-
-프리로더의 조회 주소는 `https://api.github.com/repos/maynut02/astral-party-korean-patch/releases/latest`입니다. manifest와 payload의 다운로드 URL은 해당 저장소의 HTTPS `releases/download/` 경로로 제한합니다.
-
-| route | 리소스 manifest | 원본 경로: 게임 폴더 기준 |
+| URL (`https://file.maynutlab.com/` 기준) | 내용 | 배포 헤더 |
 | --- | --- | --- |
-| `INT_STEAM` | `INT_STEAM_manifest.json` | `AstralParty_INT_Data/data.unity3d` |
-| `CN_STEAM` | `CN_STEAM_manifest.json` | `AstralParty_CN_Data/data.unity3d` |
+| `translation-pack/latest.json` | 최신 포인터 | `Cache-Control: no-cache` |
+| `translation-pack/packs/{number}.json.gz` | gzip JSON 팩 | `Cache-Control: public, max-age=31536000, immutable`; `Content-Encoding` 없음 |
 
-| 항목 | 확인 내용 |
-| --- | --- |
-| manifest | `schemaVersion = 2`, 같은 route, `channel = release`, `patch.version`과 리소스 릴리즈 태그 일치 |
-| manifest 해시 | GitHub asset digest가 있으면 다운로드 SHA-256과 비교; 캐시에서는 상태에 기록한 SHA-256과 비교 |
-| 게임 호환성 | 설치된 원본 파일로 교체 데이터의 호환성을 확인하고, 실행 중 버전과 실제 번들 요청의 식별 정보로 Addressables 적용 여부 판단 |
-| 설치 원본 | 원본 `data.unity3d`의 크기·SHA-256이 manifest의 `sourceSize`·`sourceSha256`과 일치하는지 매 실행 확인 |
-| 다운로드 | gzip의 크기·`downloadSha256`, 압축 해제한 payload의 `size`·`sha256`, `UnityFS` 헤더 확인 |
-| Addressables 항목 | `target = addressables`, `번들/해시/__data` 경로, `compression = gzip`, `operation = replace` |
-| 런타임 인계 | 상태의 `AddressablesReady`, 세션의 `Ready`·PID·시작 시각·route·태그·manifest 해시·게임 버전·catalog 해시 일치 |
-| 런타임 재확인 | manifest 해시와 로컬 번들의 크기·UnityFS 확인; 리디렉션 전에 `Application.version`과 실제 요청의 번들 이름·해시 및 노출된 CDN route·버전·revision 확인 |
+포인터:
 
-원본 `data.unity3d`는 존재하고 읽을 수 있어야 하며 `sourceSize`·`sourceSha256`이 모두 일치해야 합니다. 불일치는 `rejected-mismatch`로 기록하고 해당 패치의 적용을 거부합니다. 이 검사는 신규 다운로드와 캐시 재사용, 오프라인 이전 패치 재사용에 모두 적용합니다. 교체 payload에도 별도의 크기·해시 검증을 적용합니다.
+```json
+{
+  "schemaVersion": 1,
+  "locale": "ko",
+  "number": 57,
+  "version": "3.3.0",
+  "revision": "026",
+  "publishedAt": "2026-10-22T03:10:00Z",
+  "path": "packs/57.json.gz",
+  "size": 208550,
+  "sha256": "<gzip 바이트의 SHA-256: 64자리 16진수>"
+}
+```
 
-Steam 업데이트 직후 LocalLow의 카탈로그는 이전 버전이거나 없을 수 있습니다. 카탈로그 파일을 시작 조건으로 삼지 않으므로 설치 원본과 대응하는 최신 패치가 배포돼 있으면 첫 실행부터 준비합니다. 실행 중에는 게임이 실제 요청한 번들과 일치하는 패치만 연결합니다. manifest의 catalog 해시는 패치와 프리로더 세션의 식별 정보로 유지하며, 이전 실행의 파일을 현재 로드된 카탈로그로 간주하지 않습니다. 게임 카탈로그와 원본 파일은 덮어쓰지 않습니다.
+팩(gzip 해제 후):
 
-최신 패치가 설치 원본과 다르면 이전 캐시도 같은 원본 검사를 통과해야 사용할 수 있습니다. 유효한 패치가 없으면 세션 기록과 파일 접근 후킹 없이 원본으로 실행합니다. 호환되는 패치가 배포된 다음 실행에는 다시 최신 릴리스를 확인합니다.
+```json
+{
+  "schemaVersion": 1,
+  "locale": "ko",
+  "pack": {
+    "number": 57,
+    "version": "3.3.0",
+    "revision": "026",
+    "publishedAt": "2026-10-22T03:10:00Z"
+  },
+  "lang": { "<key>": "<text>" },
+  "str": { "<STR 에셋 이름>": { "<uint32 id>": "<text>" } }
+}
+```
 
-기존 `data.unity3d` 교체 캐시는 크기와 저장된 수정 시각이 같으면 전체 해시 검사를 생략합니다. 설치 원본은 수정 시각이 같아도 항상 크기·SHA-256을 검사하며, 이전 플러그인이 불일치 상태에서 저장한 시각도 신뢰하지 않습니다. Addressables 캐시는 프리로더에서 크기·UnityFS·SHA-256을 확인하며 런타임은 현재 세션으로 검증 결과를 인계받습니다.
+- `number`는 양의 64비트 정수이며 배포마다 증가하고 재사용하지 않습니다. `path`는 정확히 `packs/{number}.json.gz`여야 하며 외부 URL·상대 경로 이동을 허용하지 않습니다.
+- 포인터는 최대 64 KiB, gzip 파일은 최대 32 MiB, 압축 해제 JSON은 최대 128 MiB입니다. gzip 바이트의 실제 크기와 SHA-256, 양쪽 `schemaVersion`·`locale`, 팩 내부 `pack.number`를 검증합니다. 캐시를 읽을 때도 같은 검증을 합니다.
+- `version`·`revision`은 팩 게시 시점의 INT_STEAM 처리 정보입니다. `publishedAt`도 기록용이며 게임 호환성·갱신 순서 판단에 쓰지 않습니다. 번역은 원문 버전과 대조하지 않으며 INT/CN이 같은 팩을 사용합니다.
+- 번역값은 null이 아닌 문자열, STR id는 uint32로 읽을 수 있는 10진수입니다. 번역 맵의 중복 키·id와 잘못된 JSON/형식은 팩 전체를 거부합니다. 게시 시 줄바꿈은 `\n`으로 정규화합니다.
+- 지원하지 않는 스키마는 기존 세션 팩을 유지하면서 플러그인 업데이트를 안내합니다. 최초 번역 읽기는 플러그인 시작부터 최대 10초까지 준비를 기다린 뒤 팩을 고정합니다. 이후 받은 새 팩은 다음 실행부터 사용합니다.
 
-## 캐시와 로그
+## 텍스트 후킹
 
-캐시 루트는 게임 폴더의 `BepInEx/AstralPartyKoreanPatch/`입니다. 상태가 가리키는 manifest·payload를 사용하므로 다른 릴리즈의 파일이 남아 있어도 임의로 선택하지 않습니다.
+Harmony로 `TextAsset` 읽기를 후킹하고 에셋 이름으로 대상을 고릅니다. STR은 팩의 `str[에셋 이름][id]`, lang XML은 `lang[key]`를 사용합니다. 원문 문자열이나 게임 버전을 대조하지 않습니다. 팩에 없는 새 에셋·id·키는 원문을 유지합니다.
 
-| 캐시 루트 아래 경로 | 내용 |
-| --- | --- |
-| `data-unity3d-state.json` | 활성 리소스 태그·manifest·payload 해시, 게임 식별 정보, ETag와 수정 시각 |
-| `preloader-session.json` | 이번 프로세스에서 준비한 리소스와 준비 완료 여부 |
-| `releases/<manifest-sha256>/manifest.json` | 해시별 manifest |
-| `game-data/<payload-sha256>.unity3d` | 교체용 `data.unity3d` |
-| `payloads/<payload-sha256>.bundle` | Addressables 번들 |
+| 판 | lang TextAsset | STR protobuf 언어 필드 |
+| --- | --- | --- |
+| INT (`AstralParty_INT.exe` / `AstralParty_INT_Data`) | `English` | 3 |
+| CN (`AstralParty_CN.exe` / `AstralParty_CN_Data`) | `Simplified Chinese` | 2 |
 
-구형 `BepInEx/plugins/AstralPartyKoreanPatch/`의 캐시·상태·로그는 새 위치에 대응 항목이 없을 때 옮깁니다. 이전 `patched-data.unity3d`와 `cache/<route>-manifest.json`은 검증 후 현재 캐시 형식으로 복사할 수 있습니다.
+두 판은 같은 번역 팩과 폰트를 사용합니다. STR의 다른 언어·구조는 보존하며 lang도 기존 키만 바꿉니다. 읽기·변환 실패는 원본 읽기로 돌아갑니다. 번역 결과를 캐시해 같은 원본을 반복 변환하지 않습니다.
 
-| 실제 로그 경로: 게임 폴더 기준 | 용도 |
-| --- | --- |
-| `BepInEx/data-redirect.log` | 프리로더의 갱신·검증·캐시 선택·세션·파일 접근 전환 |
-| `BepInEx/AstralPartyKoreanPatch/addressables-patch.jsonl` | 런타임 준비·리디렉션·실패 이벤트, UTC 시각과 PID |
+원본 바이트는 `TextAsset.GetDataPtr`·`GetDataSize`로 읽어 getter 재호출을 피하고, 에셋 이름·길이·FNV-64로 변환 결과를 구분합니다. STR wrapper의 field 1 direct 항목과 field 2 mirror 내부의 field 2 항목을 모두 처리합니다. Id는 field 1 fixed32이며 proto3에서 생략된 Id는 0입니다. lang XML은 기존 `<string name="key">`만 바꾸고 공백·줄바꿈을 보존합니다.
 
-게임의 catalog 캐시는 `%USERPROFILE%/AppData/LocalLow/feimo/` 아래의 `AstralParty_INT/com.unity.addressables/` 또는 `AstralParty_CN/com.unity.addressables/`에 있습니다. 플러그인은 이 캐시의 생성·갱신 시점에 의존하지 않으며 카탈로그 갱신은 게임에 맡깁니다.
+## 폰트
 
-## 실패 시 적용 범위
+플러그인 DLL 옆의 `astralkorean_fonts.bundle`을 읽습니다. 게임의 폰트 번들을 변경하거나 게임 원본 파일에 쓰지 않습니다.
 
-온라인 확인·갱신에 실패하면 기존 활성 상태를 다운로드 없이 다시 확인합니다. 오프라인에서도 manifest·설치 원본·교체 데이터·모든 Addressables payload가 유효한 캐시는 사용할 수 있습니다. 실행 중 번들 연결에는 같은 버전·번들 식별 정보 검사를 적용합니다.
+- 레거시 `SystemConfig.GetFontAsset`: `Afacad-Regular`, `Impact`, `SIMHEI`, `VonwaonBitmap`을 번들의 동적 폰트로 교체
+- TMP: `Afacad-Regular_TMP`, `Impact_TMP`, `dgo_TMP`의 기존 에셋을 번들의 아틀라스·글리프 데이터로 갱신
+- `SHOWG`, `SHOWG_TMP`, `hp02_TMP`는 원본 유지
 
-| 실패 지점 | 동작 |
-| --- | --- |
-| 프리로더 캐시 없음, 원본 파일 없음·읽기 실패, 후킹 실패 | 이번 실행의 준비 세션을 제공하지 않고 원래 로드 경로 유지 |
-| 런타임 세션·manifest·payload 준비 실패 | Addressables의 원래 `GetLoadInfo` 실행 |
-| 런타임 게임 버전 불일치 또는 확인 실패 | 이번 프로세스의 이후 Addressables 리디렉션 중단 |
-| 대상 번들 불일치·payload 누락·개별 리디렉션 예외 | 해당 요청에서 원래 `GetLoadInfo` 실행 |
+TMP 에셋 객체를 유지하므로 이미 그 객체를 참조하는 UI에도 적용됩니다. 번들은 Unity 기본 타입만 포함하며 게임 스크립트나 Addressables 번들에 의존하지 않습니다.
 
-런타임이 원래 Addressables 로드 경로를 사용해도 프리로더가 설치한 `data.unity3d` 후킹은 유지됩니다.
+번들에는 동적 `Font`(`assets/astralkorean/onemobilepop.ttf`), Alpha8 SDF `Texture2D`(`assets/astralkorean/tmp-atlas.asset`), TMP 메트릭·글리프·문자 테이블을 담은 JSON `TextAsset`(`assets/astralkorean/tmp-data.json`)이 있습니다. TMP 에셋 자체는 넣지 않고 기존 객체를 다시 채웁니다. 재생성 방법과 입력은 [개발 문서](development.md#폰트-번들-수동-재생성)에 있습니다.
 
-## 변경 시 확인할 범위
+## 오버레이와 HybridCLR 제약
 
-manifest·catalog·캐시·세션 변경은 신규 다운로드·캐시 재사용과 오프라인·불완전 캐시에서의 동작을 확인하세요. 후킹·번들 식별·오버레이·입력 변경은 글로벌판·중국판의 실제 게임 검사를 포함한 [개발 문서의 검증](development.md#검증)을 따릅니다.
+상태 오버레이는 uGUI Canvas가 아니라 게임의 `FairyGUI.GRoot`에 붙이는 최상위 `GComponent`입니다. `AstralParty.Runtime`의 HybridCLR 타입에는 interop 래퍼가 없으므로 `FairyGui`가 IL2CPP 메타데이터에서 **정확한 매개변수 타입**으로 메서드를 찾아 호출합니다. `FguiNode`는 플러그인이 만든 객체의 GC 핸들과 `Dispose`를 관리하며, 게임 소유의 GRoot는 현재 프레임에서만 빌려 씁니다.
+
+메인 스레드의 `EventSystem.Update` Harmony prefix에서 프레임마다 한 번 처리하며, GRoot를 처음 얻은 프레임에 패널을 만듭니다. GRoot 기준 520×400 크기, 오른쪽·아래 32 여백, `sortingOrder=890000`을 사용하여 채팅 플러그인 창(`900000`)보다 아래에 표시합니다. 게임이 패널을 제거하거나 파괴하면 다시 만듭니다. 어두운 둥근 패널, 분홍색 테두리·닫기 버튼, 한글 제목을 유지하며 번들의 `FontAssets.KoreanFont`를 전용 FairyGUI 폰트 별칭으로 등록합니다. 번들 또는 폰트 등록이 실패하면 게임 기본 폰트를 사용합니다.
+
+게임은 로그인 화면에서 게임을 시작할 때 `UIManager.AsyncLoadFonts`에서 `FontManager.Clear()`를 호출하여 등록된 FairyGUI 폰트를 모두 `Dispose`합니다. 해제된 `DynamicFont`는 `Font.textureRebuilt`를 더 이상 받지 않아, 이후 글리프 아틀라스가 재생성되면 그 폰트를 쓰는 텍스트가 깨집니다. 그래서 오버레이는 매 틱 `FontManager.sFontFactory`의 `_version`을 등록 시점 값과 비교하고, 바뀌면 폰트를 다시 등록하고 패널을 새로 만듭니다.
+
+정보는 `게임`(버전·리비전), `번역 팩`(버전·리비전·번호), `플러그인`(설치·최신), `상태`의 행으로 구분합니다. 각 값 위의 작은 캡션과 값 열을 맞추며 상태는 중요도별 색으로 표시하고 길면 줄바꿈합니다. 세션 번역 팩이 고정되면 그 팩의 메타데이터를 표시하고, 새로 받은 팩은 기존 상태 메시지로 다음 실행부터 적용됨을 알립니다. 스냅샷이 바뀔 때만 텍스트를 갱신합니다.
+
+게임 정보는 첫 UI 프레임부터 약 120프레임마다 `App.WebServerConfig._hotUpdateConfigData`를 읽고, JSON을 해석했거나 실제 시간 약 60초가 지나면 중단합니다. 버전은 JSON의 `version`을 우선하고 없으면 `Application.version`을 유지합니다. 리비전은 `sourceUrl`의 `{route}/{version}/{revision}`에서 숫자 문자열 그대로 가져와 `026` 같은 앞자리 0을 보존합니다. 빌더와 같이 CDN 접두 경로·끝의 한 경로 및 짧은 숫자 URL을 허용하되, JSON과 URL 버전이 다르면 리비전은 `-`입니다. 확인 전에는 `확인 중`, 파싱 불가·시간 초과에는 `-`를 표시합니다.
+
+패널과 닫기 버튼은 FairyGUI의 opaque 히트 테스트로 뒤쪽 게임 UI 클릭을 차단합니다. 표시 중에만 Esc를 읽고, 마우스 버튼을 놓은 프레임에는 GRoot의 `touchTarget` 부모를 따라 닫기 버튼인지 확인합니다. X나 Esc로 닫으면 소유 UI와 폰트 등록(폰트의 `NTexture` 머티리얼 포함)을 해제하며, 이번 세션에는 다시 열지 않습니다. 닫거나 폰트 재등록으로 다시 만들 때는 패널을 먼저 숨기고 다음 프레임에 해제합니다. FairyGUI는 프레임마다 히트 대상을 캐시하고 게임 코드가 그 프레임에 `GRoot.touchTarget`을 읽기 때문입니다. 번역·폰트 패치는 계속 작동합니다. UI 실패는 한 번 기록하고 오버레이만 중단하여 게임 프레임과 번역을 방해하지 않습니다.
+
+HybridCLR 환경에서는 Il2CppInterop 클래스 주입, 플러그인 MonoBehaviour의 `AddComponent`, 관리 UnityEvent/FairyGUI EventCallback 델리게이트를 사용하지 않습니다. 텍스트·폰트·UI 처리 모두 원래 게임 로드 경로를 유지하며 게임 원본을 수정하지 않습니다.

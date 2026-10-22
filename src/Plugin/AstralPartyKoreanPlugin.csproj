@@ -4,6 +4,7 @@
     <AstralPluginProject>true</AstralPluginProject>
     <AssemblyName>AstralPartyKoreanPlugin</AssemblyName>
     <RootNamespace>AstralParty.KoreanPatch</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,6 +24,18 @@
       <HintPath>$(AstralBepInExRoot)/core/Il2CppInterop.Runtime.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="AppConfig">
+      <HintPath>$(AstralBepInExRoot)/interop/AppConfig.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(AstralBepInExRoot)/interop/Unity.TextMeshPro.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextCoreFontEngineModule">
+      <HintPath>$(AstralBepInExRoot)/interop/UnityEngine.TextCoreFontEngineModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>$(AstralBepInExRoot)/interop/UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
@@ -33,10 +46,6 @@
     </Reference>
     <Reference Include="UnityEngine.AssetBundleModule">
       <HintPath>$(AstralBepInExRoot)/interop/UnityEngine.AssetBundleModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.UIModule">
-      <HintPath>$(AstralBepInExRoot)/interop/UnityEngine.UIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">

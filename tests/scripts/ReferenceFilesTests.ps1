@@ -79,6 +79,21 @@ try {
         Sync-AstralReferences -GameRoot $gameRoot -WorkRoot $workRoot | Out-Null
         Assert-True ((@(Get-CacheSnapshot) -join ',') -ceq $snapshot) 'Repeated sync changed identical inventory or unrelated files.'
     }
+    Test-Case 'sync-removes-previously-managed-reference-no-longer-required' {
+        $metadataPath = Join-Path $refs 'versions.json'
+        $current = Get-Content -LiteralPath $metadataPath -Raw
+        $record = $current | ConvertFrom-Json
+        $record.references += [pscustomobject]@{ file = 'core/Obsolete.Dependency.dll'; assemblyVersion = '1.0.0.0'; fileVersion = '1.0.0.0'; sha256 = '0' }
+        $record | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $metadataPath -Encoding utf8NoBOM
+        Copy-Item -LiteralPath $sampleAssembly -Destination (Join-Path $refs 'core/Obsolete.Dependency.dll')
+        Copy-Item -LiteralPath $sampleAssembly -Destination (Join-Path $refs 'core/Unmanaged.dll')
+        Sync-AstralReferences -GameRoot $gameRoot -WorkRoot $workRoot | Out-Null
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $refs 'core/Obsolete.Dependency.dll'))) 'Obsolete managed reference was kept.'
+        Assert-True (Test-Path -LiteralPath (Join-Path $refs 'core/Unmanaged.dll')) 'Unmanaged cache file was removed.'
+        Assert-True ((Get-Content -LiteralPath $metadataPath -Raw) -ceq $current) 'Inventory still lists the obsolete reference.'
+        Remove-Item -LiteralPath (Join-Path $refs 'core/Unmanaged.dll')
+        Assert-True ((@(Get-CacheSnapshot) -join ',') -ceq $snapshot) 'Pruning changed required references or unrelated files.'
+    }
     # Make an earlier DLL different so a partial copy would be observable.
     Copy-Item -LiteralPath $alternateAssembly -Destination (Join-Path $sourceRoot $relativePaths[0]) -Force
     Test-Case 'missing-late-dependency-preserves-all-cached-dlls-and-metadata' {

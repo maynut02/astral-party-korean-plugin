@@ -1,371 +1,419 @@
+"""Run Unity-free production plugin logic in a managed .NET harness; no game or network."""
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+from html import escape
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-
-def test_windows_plugin_uses_local_core_and_interop_references() -> None:
-    projects = "\n".join(path.read_text(encoding="utf-8") for path in [
-        ROOT / "src/Preloader/AstralPartyKoreanPlugin.dataUnity3dRedirect.csproj",
-        ROOT / "src/Plugin/AstralPartyKoreanPlugin.csproj",
-    ])
-    props = (ROOT / "Directory.Build.props").read_text(encoding="utf-8")
-    assert "AstralBepInExRoot" in projects
-    assert "/core/" in projects and "/interop/" in projects
-    assert "AstralRefsRoot" in props and "AstralGameRoot" in props
-    assert "AstralDepsRoot" not in projects
-    assert "<Private>false</Private>" in projects
-
-
-def test_plugin_uses_game_ui_reference() -> None:
-    source = (ROOT / "src/Plugin/AddressablesInProcessPatch.cs").read_text(encoding="utf-8")
-    project = (ROOT / "src/Plugin/AstralPartyKoreanPlugin.csproj").read_text(encoding="utf-8")
-    assert "using UnityEngine.EventSystems;" not in source
-    assert "/interop/UnityEngine.UI.dll" in project
-    assert "UnityEngine.UI.Reference" not in project
-    assert not (ROOT / "src/UnityEngine.UI.Reference").exists()
-    assert "Resources.FindObjectsOfTypeAll<Font>()" not in source
-    assert "MakeGenericMethod(typeof(Font)).Invoke" in source
-
-
-def test_preloader_restores_game_window_foreground_once() -> None:
-    source = (ROOT / "src/Preloader/DataUnity3dRedirect.cs").read_text(encoding="utf-8")
-    assert "WsExNoActivate" in source
-    assert "SwShowNoActivate" in source
-    assert "ScheduleGameForegroundRestore" in source
-    assert '"UnityWndClass"' in source
-    assert "TryActivateGameWindow" in source
-    assert "AttachThreadInput" in source
-    assert "SetForegroundWindow(gameWindow)" in source
-    assert "HwndTopmost" in source
-    assert "HwndNoTopmost" in source
-
-
-def test_preloader_requires_matching_installed_data_unity3d() -> None:
-    source = (ROOT / "src/Preloader/DataUnity3dRedirect.cs").read_text(encoding="utf-8")
-    assert "AstralBuildVersion.Value" in source
-    assert "installed data.unity3d does not match release source" in source
-    assert '" action=" + (matchesManifestSource ? "accepted" : "rejected-mismatch")' in source
-    source_check = source[source.index("private static bool VerifySource"):source.index("private static bool VerifyReplacement")]
-    assert "return matchesManifestSource;" in source_check
-    assert "SourceWriteTimeUtcTicks" not in source_check
-    assert "if (info.Length != state.PayloadSize) return false;" in source
-    assert "string.Equals(actual, state.PayloadSha256" in source
-
-
-def test_overlay_close_glyph_uses_release_safe_image_icon() -> None:
-    source = (ROOT / "src/Plugin/AddressablesInProcessPatch.cs").read_text(encoding="utf-8")
-    assert "CreateCloseGlyphBar" in source
-    assert "GetSolidSprite" in source
-    assert "texture.SetPixel(0, 0, Color.white)" in source
-    assert "texture.SetPixels(" not in source
-    assert 'glyph.text = "×"' not in source
-
-
-def test_runtime_cache_font_and_window_lifetime(tmp_path: Path) -> None:
-    """Run the full preloader and production font lookup with small framework stubs."""
-    import os
-    import shutil
-    import subprocess
-    from html import escape
-
-    import pytest
-
-    if os.name != "nt":
-        pytest.skip("startup progress uses Win32")
-    local_dotnet = ROOT / ".work/dotnet/dotnet.exe"
-    dotnet = os.environ.get("ASTRAL_TEST_DOTNET") or (
-        str(local_dotnet) if local_dotnet.exists() else shutil.which("dotnet")
-    )
-    if not dotnet:
-        pytest.skip(".NET 6 SDK is required for the Win32 runtime test")
-    sdk_probe = subprocess.run([dotnet, "--list-sdks"], capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", timeout=20)
-    if sdk_probe.returncode or not any(line.startswith("6.") for line in sdk_probe.stdout.splitlines()):
-        pytest.skip(".NET 6 SDK is required for the Win32 runtime test")
-
-    source = escape(str(ROOT / "src/Preloader/DataUnity3dRedirect.cs"), quote=True)
-    project = tmp_path / "ProgressTest.csproj"
-    project.write_text(f'''<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType><TargetFramework>net6.0</TargetFramework>
-    <Nullable>enable</Nullable><EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-  </PropertyGroup>
-  <ItemGroup><Compile Include="{source}" /><Compile Include="Program.cs" /></ItemGroup>
-</Project>''', encoding="utf-8")
-    (tmp_path / "NuGet.Config").write_text(
-        '<configuration><packageSources><clear /></packageSources></configuration>', encoding="utf-8"
-    )
-    plugin = (ROOT / "src/Plugin/AddressablesInProcessPatch.cs").read_text(encoding="utf-8")
-    # Compile these exact production methods: Unity's destroyed-object null
-    # semantics are simulated below; this is not an IL2CPP integration test.
-    font_methods = plugin[plugin.index("    private static Font GetOverlayFont()"):
-                          plugin.index("    private static void RefreshPreferredFont()")]
-    manifest_methods = plugin[plugin.index("    private static ReleaseManifest ParseManifest("):
-                             plugin.index("    private static void EnsureUnityFs(")]
-    manifest_helpers = plugin[plugin.index("    private static void EnsureGitHubUrl("):
-                             plugin.index("    internal static void Event(")]
-    manifest_models = plugin[plugin.index("    private sealed class ReleaseManifest"):
-                            plugin.index("    private sealed class PayloadEntry")]
-    manifest_limits = "\n".join(line for line in plugin.splitlines() if
-                               line.startswith("    private const string Repository =") or
-                               line.startswith("    private const long TransportLimit ="))
-    (tmp_path / "Program.cs").write_text(r'''
+HARNESS = r'''
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
-using System.Threading;
-using UnityEngine;
-
-internal static class AstralBuildVersion { public const string Value = "1.0.0"; }
-namespace BepInEx.Preloader.Core.Patching
-{
-    public abstract class BasePatcher { public object Log => new object(); public virtual void Initialize() { } }
-    public sealed class PatcherPluginInfoAttribute : Attribute
-    { public PatcherPluginInfoAttribute(string guid, string name, string version) { } }
-}
+using System.Threading.Tasks;
+using AstralParty.KoreanPatch;
 
 internal static class Program
 {
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr CreateDesktopW(string name, IntPtr device, IntPtr mode,
-        uint flags, uint access, IntPtr security);
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool SetThreadDesktop(IntPtr desktop);
-    [DllImport("user32.dll")]
-    private static extern bool CloseDesktop(IntPtr desktop);
-    [DllImport("user32.dll")]
-    private static extern bool IsWindow(IntPtr window);
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool PostThreadMessageW(uint thread, uint message, IntPtr wParam, IntPtr lParam);
-
-    private static void Require(bool condition, string message)
-    { if (!condition) throw new InvalidOperationException(message); }
-
-    public static void Main()
+    private static string Text(JsonElement root, string name) => root.GetProperty(name).GetString()!;
+    // Image sections block deletion but allow renaming, like an assembly loaded by the game.
+    [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr LoadLibraryExW(string path, IntPtr file, uint flags);
+    [DllImport("kernel32")]
+    private static extern bool FreeLibrary(IntPtr module);
+    private static bool Flag(JsonElement root, string name) => root.TryGetProperty(name, out var value) && value.GetBoolean();
+    public static async Task Main(string[] args)
     {
-        VerifyManifestSnapshot();
-        FontLookupTest.Verify();
-        VerifyProgressCleanup();
-    }
-
-    private static object? Invoke(string name, params object?[] args) =>
-        typeof(DataUnity3dRedirect).GetMethod(name, BindingFlags.Static | BindingFlags.NonPublic)!
-            .Invoke(null, args);
-
-    private static void Set(string name, object value) =>
-        typeof(DataUnity3dRedirect).GetField(name, BindingFlags.Static | BindingFlags.NonPublic)!
-            .SetValue(null, value);
-
-    private static void VerifyManifestSnapshot()
-    {
-        var root = Path.Combine(Environment.CurrentDirectory, "cache-test");
-        var releases = Path.Combine(root, "releases");
-        var payloads = Path.Combine(root, "payloads");
-        Directory.CreateDirectory(payloads);
-        Directory.CreateDirectory(root);
-        var original = Encoding.ASCII.GetBytes("UnityFS-original-test-player");
-        var originalSha = Convert.ToHexString(SHA256.HashData(original)).ToLowerInvariant();
-        var sourcePath = Path.Combine(root, "data.unity3d");
-        File.WriteAllBytes(sourcePath, original);
-        var payload = Encoding.ASCII.GetBytes("UnityFS-valid-test-payload");
-        var payloadSha = Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
-        var catalogHash = new string('a', 32);
-        var manifest = Encoding.UTF8.GetBytes("{\"schemaVersion\":2," +
-            "\"patch\":{\"route\":\"INT_STEAM\",\"channel\":\"release\",\"version\":\"1.0.0\"}," +
-            "\"game\":{\"version\":\"1.2.3\",\"revision\":\"456\",\"catalogHash\":\"" + catalogHash + "\"}," +
-            "\"files\":[{\"target\":\"addressables\",\"path\":\"bundle/hash/__data\"," +
-            "\"compression\":\"gzip\",\"operation\":\"replace\"," +
-            "\"downloadUrl\":\"https://github.com/maynut02/astral-party-korean-patch/releases/download/v1/payload.gz\"," +
-            "\"downloadSha256\":\"" + new string('b', 64) + "\",\"downloadSize\":12," +
-            "\"sha256\":\"" + payloadSha + "\",\"size\":" + payload.Length + "}," +
-            "{\"target\":\"game-data\",\"path\":\"data.unity3d\",\"compression\":\"gzip\",\"operation\":\"replace\"," +
-            "\"downloadUrl\":\"https://github.com/maynut02/astral-party-korean-patch/releases/download/v1/data.gz\"," +
-            "\"downloadSha256\":\"" + new string('b', 64) + "\",\"downloadSize\":12," +
-            "\"sha256\":\"" + payloadSha + "\",\"size\":" + payload.Length + "," +
-            "\"sourceSha256\":\"" + originalSha + "\",\"sourceSize\":" + original.Length + "}]}");
-        var manifestSha = Convert.ToHexString(SHA256.HashData(manifest)).ToLowerInvariant();
-        ManifestParserTest.Verify(Encoding.UTF8.GetString(manifest));
-        var manifestPath = Path.Combine(releases, manifestSha, "manifest.json");
-        Directory.CreateDirectory(Path.GetDirectoryName(manifestPath)!);
-        File.WriteAllBytes(manifestPath, manifest);
-        var stateType = typeof(DataUnity3dRedirect).GetNestedType("RedirectState", BindingFlags.NonPublic)!;
-        Set("route", "INT_STEAM");
-        Set("sourcePath", sourcePath);
-        var state = Invoke("ParseGameDataManifest", manifest, "1.0.0", manifestSha,
-            "https://github.com/maynut02/astral-party-korean-patch/releases/download/v1/manifest.json")!;
-        Set("releaseRootPath", releases);
-        Set("payloadRootPath", payloads);
-        var args = new object?[] { state, null };
-        Require((bool)Invoke("EnsureCachedManifestCompatibility", args)!, "valid manifest was rejected");
-        var verified = (byte[])args[1]!;
-        Require(manifest.AsSpan().SequenceEqual(verified), "verified snapshot differs from cached manifest");
-        File.Delete(manifestPath);
-        var payloadPath = Path.Combine(payloads, payloadSha + ".bundle");
-        File.WriteAllBytes(payloadPath, payload);
-        Require((bool)Invoke("EnsureAddressablesFromState", verified, false)!,
-            "verified payload required another manifest read");
-        payload[payload.Length - 1] ^= 1;
-        File.WriteAllBytes(payloadPath, payload);
-        Require(!(bool)Invoke("EnsureAddressablesFromState", verified, false)!,
-            "same-size corrupted payload was accepted offline");
-        File.Delete(payloadPath);
-        Require(!(bool)Invoke("EnsureAddressablesFromState", verified, false)!,
-            "missing payload was accepted offline");
-        File.WriteAllBytes(manifestPath, Encoding.UTF8.GetBytes("{}"));
-        Require(!(bool)Invoke("EnsureCachedManifestCompatibility", args)!, "corrupted manifest was accepted");
-        Require(((byte[])args[1]!).Length == 0, "failed verification exposed manifest bytes");
-    }
-
-    private static void VerifyProgressCleanup()
-    {
-        // Never switch to this desktop: even ShowWindow stays invisible to the user.
-        var desktop = CreateDesktopW("AstralProgressTest-" + Guid.NewGuid().ToString("N"),
-            IntPtr.Zero, IntPtr.Zero, 0, 0x01ff, IntPtr.Zero);
-        Require(desktop != IntPtr.Zero, "CreateDesktop failed: " + Marshal.GetLastWin32Error());
-        var type = typeof(DataUnity3dRedirect).GetNestedType("StartupProgress", BindingFlags.NonPublic)!;
-        var progress = Activator.CreateInstance(type, nonPublic: true)!;
-        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
-        var sync = type.GetField("sync", flags)!.GetValue(progress)!;
-        using var returned = new ManualResetEventSlim();
-        using var release = new ManualResetEventSlim();
-        Exception? error = null;
-        var worker = new Thread(() =>
+        using var input = JsonDocument.Parse(File.ReadAllBytes(args[0]));
+        var request = input.RootElement;
+        object result;
+        switch (Text(request, "mode"))
         {
-            try
+            case "route":
+                result = GameRoute.Detect(Text(request, "process"), Text(request, "data"));
+                break;
+            case "game-info":
+                var parsed = GameInfo.TryParse(request.GetProperty("json").GetString(), out var info);
+                result = new { parsed, info };
+                break;
+            case "overlay":
+                result = OverlayState.Create(Text(request, "gameVersion"), Text(request, "gameRevision"),
+                    Text(request, "installed"), Text(request, "latest"), !Flag(request, "unsupported"),
+                    request.TryGetProperty("cleanupFailure", out var cleanup) ? cleanup.GetString() : null,
+                    new PackState(null, null, Flag(request, "frozen"), Flag(request, "checking"),
+                        Flag(request, "offline"), Flag(request, "updateRequired")));
+                break;
+            case "semver":
+                result = new { comparison = SemanticVersion.Parse(Text(request, "left")).CompareTo(SemanticVersion.Parse(Text(request, "right"))) };
+                break;
+            case "str":
+                var translations = new Dictionary<uint, string>();
+                foreach (var entry in request.GetProperty("translations").EnumerateObject())
+                    translations.Add(uint.Parse(entry.Name), entry.Value.GetString()!);
+                var original = Convert.FromBase64String(Text(request, "data"));
+                var patched = StrPatcher.Patch(original, translations, request.GetProperty("field").GetInt32());
+                result = new { data = Convert.ToBase64String(patched), unchanged = ReferenceEquals(original, patched) };
+                break;
+            case "lang":
+                var lang = new Dictionary<string, string>();
+                foreach (var entry in request.GetProperty("translations").EnumerateObject())
+                    lang.Add(entry.Name, entry.Value.GetString()!);
+                result = new { text = LangPatcher.Patch(Text(request, "text"), lang) };
+                break;
+            case "cleanup":
             {
-                Require(SetThreadDesktop(desktop), "SetThreadDesktop failed: " + Marshal.GetLastWin32Error());
-                type.GetMethod("Run", flags)!.Invoke(progress, null);
+                var cleanupLogs = new List<string>();
+                var loadedDll = request.TryGetProperty("lockedDll", out var lockedDll)
+                    ? LoadLibraryExW(lockedDll.GetString()!, IntPtr.Zero, 0x20) // LOAD_LIBRARY_AS_IMAGE_RESOURCE
+                    : IntPtr.Zero;
+                if (lockedDll.ValueKind == JsonValueKind.String && loadedDll == IntPtr.Zero)
+                    throw new IOException("Could not map test DLL: " + Marshal.GetLastWin32Error());
+                var bepinex = Text(request, "bepinex");
+                var pluginDirectory = request.TryGetProperty("pluginDirectory", out var directory)
+                    ? directory.GetString()!
+                    : Path.Combine(bepinex, "plugins", "AstralPartyKoreanPlugin");
+                var failed = LegacyCleanup.Run(bepinex, pluginDirectory, cleanupLogs.Add);
+                if (loadedDll != IntPtr.Zero) FreeLibrary(loadedDll);
+                result = new { failed, logs = cleanupLogs };
+                break;
             }
-            catch (Exception ex) { error = ex; }
-            finally { returned.Set(); }
-            // Keep the owning thread alive: thread-exit cleanup must not hide a leak in Run.
-            release.Wait();
-        }) { IsBackground = true };
-        worker.Start();
-        uint threadId = 0;
-        IntPtr parent = IntPtr.Zero;
-        var children = new IntPtr[3];
-        try
-        {
-            var ready = SpinWait.SpinUntil(() =>
-            {
-                lock (sync)
+            case "pack":
+                var logs = new List<string>();
+                var requests = new List<object>();
+                var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                if (!Flag(request, "freezeBefore")) gate.SetResult(true);
+                async Task<byte[]> Download(Uri uri, int limit, bool noCache)
                 {
-                    parent = (IntPtr)type.GetField("window", flags)!.GetValue(progress)!;
-                    threadId = (uint)type.GetField("uiThreadId", flags)!.GetValue(progress)!;
-                    children[0] = (IntPtr)type.GetField("statusLabel", flags)!.GetValue(progress)!;
-                    children[1] = (IntPtr)type.GetField("detailLabel", flags)!.GetValue(progress)!;
-                    children[2] = (IntPtr)type.GetField("progressBar", flags)!.GetValue(progress)!;
+                    await gate.Task;
+                    requests.Add(new { url = uri.AbsoluteUri, limit, noCache });
+                    if (Flag(request, "offline")) throw new IOException("test offline");
+                    return Convert.FromBase64String(Text(request, uri.AbsoluteUri.EndsWith("latest.json") ? "pointer" : "pack"));
                 }
-                return parent != IntPtr.Zero || returned.IsSet;
-            }, TimeSpan.FromSeconds(10));
-            if (error != null) throw error;
-            Require(ready && parent != IntPtr.Zero && IsWindow(parent), "progress window was not created");
-            foreach (var child in children) Require(IsWindow(child), "progress child was not created");
-            Require(PostThreadMessageW(threadId, 0x0012, IntPtr.Zero, IntPtr.Zero), "WM_QUIT failed");
-            Require(returned.Wait(TimeSpan.FromSeconds(10)), "progress loop did not stop");
-            if (error != null) throw error;
-            Require(!IsWindow(parent), "progress parent survived Run cleanup");
-            foreach (var child in children) Require(!IsWindow(child), "progress child survived Run cleanup");
+                var client = new PackClient(Text(request, "directory"), Download, logs.Add, deadline: TimeSpan.Zero);
+                var initial = client.Snapshot().Candidate?.Number;
+                TranslationPack? first = null;
+                if (Flag(request, "freezeBefore"))
+                {
+                    first = client.Freeze();
+                    gate.SetResult(true);
+                }
+                await client.RefreshTask;
+                var active = client.Freeze();
+                var state = client.Snapshot();
+                var overlay = OverlayState.Create("3.3.0", "026", "3.0.0", "v3.0.0", !Flag(request, "unsupported"), null, state);
+                result = new { initial, candidate = state.Candidate?.Number, active = active?.Number,
+                    state.Checking, state.Offline, state.UpdateRequired, state.Frozen,
+                    first = first?.Number, activeText = active != null && active.Lang.TryGetValue("hello", out var text) ? text : null,
+                    status = overlay.Status, severity = overlay.Severity.ToString(), overlay, logs, requests };
+                break;
+            default: throw new InvalidOperationException("Unknown test mode");
         }
-        finally
-        {
-            if (threadId != 0) PostThreadMessageW(threadId, 0x0012, IntPtr.Zero, IntPtr.Zero);
-            release.Set();
-            if (worker.Join(TimeSpan.FromSeconds(10))) CloseDesktop(desktop);
-        }
+        Console.WriteLine(JsonSerializer.Serialize(result, new JsonSerializerOptions { IncludeFields = true }));
     }
 }
-namespace UnityEngine
-{
-    internal sealed class Font
-    {
-        public string name = "";
-        public bool Destroyed;
-        public static Font CreateDynamicFontFromOSFont(string name, int size) => new Font { name = name };
-        public static bool operator ==(Font? left, Font? right) =>
-            ReferenceEquals(left, right) ||
-            ((ReferenceEquals(left, null) || left.Destroyed) && (ReferenceEquals(right, null) || right.Destroyed));
-        public static bool operator !=(Font? left, Font? right) => !(left == right);
-        public override bool Equals(object? value) => ReferenceEquals(this, value);
-        public override int GetHashCode() => base.GetHashCode();
-    }
-    internal static class Resources
-    {
-        public static Font? Available;
-        public static int Searches;
-        public static T[] FindObjectsOfTypeAll<T>()
-        {
-            Searches++;
-            return Available == null ? Array.Empty<T>() : new[] { (T)(object)Available };
-        }
-        public static T GetBuiltinResource<T>(string name) where T : new() => new T();
-    }
-}
+'''
 
-internal static class FontLookupTest
-{
-    private const string PreferredOverlayFontName = "Afacad-Regular";
-    private static Font? overlayFont;
-    private static Font? fallbackOverlayFont;
-    private static void LogPreferredFont(Font font) { }
-    private static void Require(bool condition, string message)
-    { if (!condition) throw new InvalidOperationException(message); }
-    public static void Verify()
-    {
-        var fallback = GetOverlayFont();
-        Require(fallback != null, "no fallback font before game font loads");
-        var preferred = new Font { name = PreferredOverlayFontName };
-        Resources.Available = preferred;
-        Require(ReferenceEquals(GetOverlayFont(), preferred), "late-loaded game font was not selected");
-        var searches = Resources.Searches;
-        for (var i = 0; i < 10; i++)
-            Require(ReferenceEquals(GetOverlayFont(), preferred), "live game font was not reused");
-        Require(Resources.Searches == searches, "live font triggered repeated resource enumeration");
-        preferred.Destroyed = true;
-        var replacement = new Font { name = PreferredOverlayFontName };
-        Resources.Available = replacement;
-        Require(ReferenceEquals(GetOverlayFont(), replacement), "destroyed game font was not replaced");
-        Require(Resources.Searches > searches, "destroyed font did not restart resource enumeration");
-    }
-''' + font_methods + "}\n" + r'''
-internal static class ManifestParserTest
-{
-    public static void Verify(string manifest)
-    {
-        // A valid preloader download can exceed 64 MiB but stay below its
-        // 128 MiB transport limit. The plugin only consumes that verified cache.
-        var larger = manifest.Replace("\"downloadSize\":12", "\"downloadSize\":100663296");
-        foreach (var route in new[] { "INT_STEAM", "CN_STEAM" })
-        {
-            var bytes = Encoding.UTF8.GetBytes(larger.Replace("INT_STEAM", route));
-            if (ParseManifest(bytes, route).Files.Count != 2)
-                throw new InvalidOperationException("supported route rejected verified manifest");
-        }
-        var oversized = Encoding.UTF8.GetBytes(larger.Replace("100663296", "134217729"));
-        try { ParseManifest(oversized, "INT_STEAM"); }
-        catch (InvalidDataException) { return; }
-        throw new InvalidOperationException("oversized transport was accepted");
-    }
-''' + manifest_limits + manifest_methods + manifest_helpers + manifest_models + "}\n", encoding="utf-8")
-    env = dict(os.environ, DOTNET_CLI_HOME=str(tmp_path / "cli-home"),
-               DOTNET_CLI_TELEMETRY_OPTOUT="1", DOTNET_SKIP_FIRST_TIME_EXPERIENCE="1",
-               DOTNET_GENERATE_ASPNET_CERTIFICATE="false")
-    build = subprocess.run(
-        [dotnet, "build", str(project), "--nologo", "-v", "quiet", "-p:UseSharedCompilation=false"],
-        cwd=tmp_path, env=env, capture_output=True, text=True,
-        encoding="utf-8", errors="replace", timeout=60,
-    )
+
+@pytest.fixture(scope="module")
+def plugin_logic(tmp_path_factory):
+    build_root = tmp_path_factory.mktemp("plugin-logic")
+    candidates = [ROOT / ".work/dotnet/dotnet.exe", ROOT / ".work/dotnet/dotnet"]
+    local_dotnet = next((path for path in candidates if path.is_file()), None)
+    dotnet = os.environ.get("ASTRAL_TEST_DOTNET") or (str(local_dotnet) if local_dotnet else shutil.which("dotnet"))
+    if not dotnet:
+        pytest.skip(".NET 6 SDK is required for plugin behavior tests")
+    dotnet = str(Path(dotnet).resolve())
+    env = dict(os.environ, DOTNET_ROOT=str(Path(dotnet).parent), DOTNET_MULTILEVEL_LOOKUP="0",
+               DOTNET_CLI_HOME=str(build_root / "cli-home"), DOTNET_CLI_TELEMETRY_OPTOUT="1",
+               DOTNET_SKIP_FIRST_TIME_EXPERIENCE="1", DOTNET_GENERATE_ASPNET_CERTIFICATE="false",
+               NUGET_PACKAGES=str(build_root / "nuget-packages"))
+    probe = subprocess.run([dotnet, "--list-sdks"], cwd=build_root, env=env, capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=20)
+    sdks = [line.split()[0] for line in probe.stdout.splitlines() if line.startswith("6.")]
+    if probe.returncode or not sdks:
+        pytest.skip(".NET 6 SDK is required for plugin behavior tests")
+    (build_root / "global.json").write_text(json.dumps({"sdk": {"version": sdks[-1], "rollForward": "disable"}}), encoding="utf-8")
+    (build_root / "NuGet.Config").write_text("<configuration><packageSources><clear /></packageSources></configuration>", encoding="utf-8")
+    sources = ["TranslationPack.cs", "PackClient.cs", "RuntimeInfo.cs", "UpdateClient.cs", "TranslationPatcher.cs", "LegacyCleanup.cs", "OverlayState.cs"]
+    includes = "".join(f'<Compile Include="{escape(str(ROOT / "src/Plugin" / name), quote=True)}" />' for name in sources)
+    project = build_root / "PluginLogic.csproj"
+    project.write_text(f'''<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net6.0</TargetFramework>
+    <Nullable>enable</Nullable><LangVersion>latest</LangVersion><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
+  <ItemGroup>{includes}<Compile Include="Program.cs" /></ItemGroup>
+</Project>''', encoding="utf-8")
+    (build_root / "Program.cs").write_text(HARNESS, encoding="utf-8")
+    build = subprocess.run([dotnet, "build", str(project), "--nologo", "-v", "quiet", "-p:UseSharedCompilation=false"],
+                           cwd=build_root, env=env, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=60)
     assert build.returncode == 0, build.stdout + build.stderr
-    result = subprocess.run(
-        [dotnet, str(tmp_path / "bin/Debug/net6.0/ProgressTest.dll")],
-        cwd=tmp_path, env=env, capture_output=True, text=True,
-        encoding="utf-8", errors="replace", timeout=40,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+    assembly = build_root / "bin/Debug/net6.0/PluginLogic.dll"
+
+    def invoke(request):
+        request_path = build_root / "request.json"
+        request_path.write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
+        completed = subprocess.run([dotnet, str(assembly), str(request_path)], cwd=build_root, env=env,
+                                   capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+        assert completed.returncode == 0, completed.stdout + completed.stderr
+        return json.loads(completed.stdout)
+
+    return invoke
+
+
+@pytest.mark.parametrize("process,data,route,lang,field", [
+    ("AstralParty_INT.exe", "/unknown", "INT", "English", 3),
+    ("AstralParty_CN", "/unknown", "CN", "Simplified Chinese", 2),
+    ("unknown", "/game/AstralParty_INT_Data", "INT", "English", 3),
+    ("unknown", "/game/AstralParty_CN_Data/", "CN", "Simplified Chinese", 2),
+])
+def test_route_detection(plugin_logic, process, data, route, lang, field):
+    # Records expose their values as properties; the harness serializes production results directly.
+    assert plugin_logic({"mode": "route", "process": process, "data": data}) == {
+        "Name": route, "LangAsset": lang, "StrField": field,
+    }
+
+
+def test_unknown_route_is_unsupported(plugin_logic):
+    assert plugin_logic({"mode": "route", "process": "OtherGame", "data": "/game/OtherGame_Data"}) is None
+
+
+@pytest.mark.parametrize("left,right,comparison", [
+    ("v3.0.0", "2.99.99", 1), ("3.0.0", "3.0.0+build.2", 0),
+    ("3.0.0-rc.2", "3.0.0-rc.10", -1), ("3.0.0-rc.10", "3.0.0", -1),
+    ("3.0.0-beta", "3.0.0-alpha.2", 1), ("3.0.1", "3.1.0", -1),
+])
+def test_plugin_versions_use_semver_precedence(plugin_logic, left, right, comparison):
+    value = plugin_logic({"mode": "semver", "left": left, "right": right})["comparison"]
+    assert (value > 0) - (value < 0) == comparison
+
+
+@pytest.mark.parametrize("data,version,revision,route", [
+    ({"version": "3.3.0", "sourceUrl": "http://seresjp.feimogames.com/INT_STEAM/3.3.0/026",
+      "sdkVersion": "1.0.1", "route": "INT_STEAM"}, "3.3.0", "026", "INT_STEAM"),
+    ({"version": "3.3.0", "sourceUrl": "https://example.com/CN_STEAM/3.3.0/0007/",
+      "route": "CN_STEAM"}, "3.3.0", "0007", "CN_STEAM"),
+    ({"version": "3.3.0", "sourceUrl": "https://example.com/cdn/INT_STEAM/3.3.0/026/resources?x=1#part",
+      "route": "INT_STEAM"}, "3.3.0", "026", "INT_STEAM"),
+    ({"version": "3.3.0", "sourceUrl": "https://example.com/game/026",
+      "route": "INT_STEAM"}, "3.3.0", "026", "INT_STEAM"),
+    ({"version": "3.3.0", "route": "INT_STEAM"}, "3.3.0", "-", "INT_STEAM"),
+    ({"route": "INT_STEAM", "sourceUrl": "https://example.com/INT_STEAM/3.3.0/026"},
+     "", "-", "INT_STEAM"),
+])
+def test_hot_update_game_info(plugin_logic, data, version, revision, route):
+    assert plugin_logic({"mode": "game-info", "json": json.dumps(data)}) == {
+        "parsed": True, "info": {"Version": version, "Revision": revision, "Route": route},
+    }
+
+
+@pytest.mark.parametrize("source", [
+    None, 26, "", "not-a-url", "file:///INT_STEAM/3.3.0/026",
+    "http://", "https://example.com/INT_STEAM/3.3.0/not-numeric",
+    "https://example.com/INT_STEAM/3.3.0/０２６",
+    "https://example.com/INT_STEAM/3.3.0/%30%32%36",
+    "https://example.com/CN_STEAM/3.3.0/026",
+    "https://example.com/INT_STEAM/3.2.0/026",
+    "https://example.com/INT_STEAM//3.3.0/026",
+    "https://example.com/INT_STEAM/3.3.0/../3.3.0/026",
+    "https://example.com/INT_STEAM/3.3.0/026/a/b",
+])
+def test_untrustworthy_game_revision_is_unavailable(plugin_logic, source):
+    # As in the builder, a version mismatch does not borrow a revision from a
+    # different game version. The JSON version itself remains the display value.
+    result = plugin_logic({"mode": "game-info", "json": json.dumps({
+        "version": "3.3.0", "route": "INT_STEAM", "sourceUrl": source,
+    })})
+    assert result == {"parsed": True, "info": {
+        "Version": "3.3.0", "Revision": "-", "Route": "INT_STEAM",
+    }}
+
+
+@pytest.mark.parametrize("raw", [None, "", " ", "{", "[]", "null", "1", "{}", '{"version": null}'])
+def test_missing_or_invalid_hot_update_data_keeps_polling(plugin_logic, raw):
+    assert plugin_logic({"mode": "game-info", "json": raw}) == {"parsed": False, "info": None}
+
+
+@pytest.mark.parametrize("game_revision", ["확인 중", "-", "026"])
+@pytest.mark.parametrize("latest", ["v2.1.1", "확인 중", "확인 실패"])
+def test_overlay_formats_separate_game_pack_and_plugin_fields(plugin_logic, game_revision, latest):
+    result = plugin_logic({
+        "mode": "overlay", "gameVersion": "3.3.0", "gameRevision": game_revision,
+        "installed": "2.1.1", "latest": latest, "checking": True,
+    })
+    assert result == {
+        "GameVersion": "3.3.0", "GameRevision": game_revision,
+        "PackVersion": "-", "PackRevision": "-", "PackNumber": "-",
+        "InstalledVersion": "v2.1.1", "LatestVersion": latest,
+        "Status": "번역 팩 확인 중", "Severity": 0,
+    }
+
+
+def test_legacy_cleanup_preserves_running_old_folder_except_known_paths(plugin_logic, tmp_path):
+    bepinex = tmp_path / "BepInEx"
+    plugin = bepinex / "plugins/AstralPartyKoreanPatch"
+    roots = [bepinex / "AstralPartyKoreanPatch", plugin]
+    known_files = ["patched-data.unity3d", "data-unity3d-state.json", "preloader-session.json", "addressables-patch.jsonl"]
+    for root in roots:
+        for directory in ["cache", "payloads", "releases", "game-data", "translation-pack", "user-data"]:
+            (root / directory).mkdir(parents=True)
+            (root / directory / "keep-or-remove").write_bytes(b"data")
+        for filename in known_files + ["AstralPartyKoreanPlugin.dll", "astralkorean_fonts.bundle", "custom.txt"]:
+            (root / filename).write_bytes(b"data")
+        for filename in known_files:
+            (root / (filename + ".tmp-old")).write_bytes(b"temp")
+    (plugin / "AstralParty.AddressablesInProcessPatch.dll").write_bytes(b"legacy")
+    patchers = bepinex / "patchers"
+    patchers.mkdir()
+    for name in ["AstralPartyKoreanPlugin.dataUnity3dRedirect.dll", "AstralPartyKoreanPlugin.dataUnity3dRedirect.dll.removed",
+                 "AstralParty.DataUnity3dRedirect.dll", "AstralParty.DataUnity3dRedirect.dll.removed", "Other.dll"]:
+        (patchers / name).write_bytes(b"data")
+    # The DLL may be installed into a shared folder; same-named folders there are not ours.
+    shared = bepinex / "plugins/cache"
+    shared.mkdir(parents=True)
+    (shared / "other-plugin").write_bytes(b"data")
+    normalized_alias = str(plugin / ".." / plugin.name) + os.sep
+    if os.name == "nt":
+        normalized_alias = normalized_alias.upper()
+    result = plugin_logic({"mode": "cleanup", "bepinex": str(bepinex), "pluginDirectory": normalized_alias})
+    assert result["failed"] is None
+    for root in roots:
+        assert all(not (root / name).exists() for name in known_files + ["cache", "payloads", "releases", "game-data"])
+        assert not list(root.glob("*.tmp-*"))
+        assert (root / "translation-pack/keep-or-remove").read_bytes() == b"data"
+        assert (root / "user-data/keep-or-remove").read_bytes() == b"data"
+        assert (root / "AstralPartyKoreanPlugin.dll").is_file()
+        assert (root / "astralkorean_fonts.bundle").is_file()
+        assert (root / "custom.txt").is_file()
+    assert sorted(path.name for path in patchers.iterdir()) == ["Other.dll"]
+    assert not (plugin / "AstralParty.AddressablesInProcessPatch.dll").exists()
+    assert (shared / "other-plugin").read_bytes() == b"data"
+
+
+@pytest.mark.parametrize("running_location", ["new", "shared", "similar-prefix"])
+def test_legacy_cleanup_removes_old_plugin_folder_only(plugin_logic, tmp_path, running_location):
+    bepinex = tmp_path / "BepInEx"
+    old = bepinex / "plugins/AstralPartyKoreanPatch"
+    for relative in ["AstralPartyKoreanPlugin.dll", "AstralParty.AddressablesInProcessPatch.dll",
+                     "astralkorean_fonts.bundle", "translation-pack/packs/57.json.gz",
+                     "translation-pack/latest.json", "nested/Old.DLL", "nested/Old.DLL.removed", "custom.txt"]:
+        path = old / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"data")
+    current = bepinex / "plugins/AstralPartyKoreanPlugin"
+    unrelated = bepinex / "plugins/OtherPlugin"
+    similar = bepinex / "plugins/AstralPartyKoreanPatchOther"
+    shared = bepinex / "plugins/cache"
+    for root in [current, unrelated, similar, shared]:
+        root.mkdir(parents=True)
+        (root / "keep.dll").write_bytes(b"keep")
+    running = {"new": current, "shared": bepinex / "plugins", "similar-prefix": similar}[running_location]
+    result = plugin_logic({"mode": "cleanup", "bepinex": str(bepinex), "pluginDirectory": str(running)})
+    assert result["failed"] is None
+    assert not old.exists()
+    for root in [current, unrelated, similar, shared]:
+        assert (root / "keep.dll").read_bytes() == b"keep"
+
+
+def _directory_link(link: Path, target: Path) -> None:
+    if os.name == "nt":  # Junctions need no symlink privilege.
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], check=True, capture_output=True)
+        return
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"Directory symlinks are unavailable: {error}")
+
+
+def test_legacy_cleanup_does_not_follow_links_to_sibling_plugin(plugin_logic, tmp_path):
+    bepinex = tmp_path / "BepInEx"
+    old = bepinex / "plugins/AstralPartyKoreanPatch"
+    other = bepinex / "plugins/OtherPlugin"
+    old.mkdir(parents=True)
+    other.mkdir()
+    (other / "keep.dll").write_bytes(b"keep")
+    _directory_link(old / "linked-plugin", other)
+    result = plugin_logic({"mode": "cleanup", "bepinex": str(bepinex)})
+    assert result["failed"] is None
+    assert not old.exists()
+    assert (other / "keep.dll").read_bytes() == b"keep"
+
+
+def test_legacy_cleanup_keeps_old_folder_running_through_link_alias(plugin_logic, tmp_path):
+    bepinex = tmp_path / "BepInEx"
+    old = bepinex / "plugins/AstralPartyKoreanPatch"
+    old.mkdir(parents=True)
+    (old / "AstralPartyKoreanPlugin.dll").write_bytes(b"current")
+    (old / "astralkorean_fonts.bundle").write_bytes(b"fonts")
+    alias = bepinex / "plugins/AstralPartyKoreanPlugin"
+    _directory_link(alias, old)
+    result = plugin_logic({"mode": "cleanup", "bepinex": str(bepinex), "pluginDirectory": str(alias)})
+    assert result["failed"] is None
+    assert (old / "AstralPartyKoreanPlugin.dll").read_bytes() == b"current"
+    assert (old / "astralkorean_fonts.bundle").read_bytes() == b"fonts"
+
+
+def test_legacy_cleanup_preserves_old_folder_when_running_in_subdirectory(plugin_logic, tmp_path):
+    bepinex = tmp_path / "BepInEx"
+    old = bepinex / "plugins/AstralPartyKoreanPatch"
+    current = old / "manual"
+    current.mkdir(parents=True)
+    (current / "AstralPartyKoreanPlugin.dll").write_bytes(b"current")
+    (old / "translation-pack").mkdir()
+    (old / "translation-pack/latest.json").write_bytes(b"cache")
+    result = plugin_logic({"mode": "cleanup", "bepinex": str(bepinex), "pluginDirectory": str(current)})
+    assert result["failed"] is None
+    assert (current / "AstralPartyKoreanPlugin.dll").read_bytes() == b"current"
+    assert (old / "translation-pack/latest.json").read_bytes() == b"cache"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows mapped DLL deletion and rename semantics")
+def test_legacy_cleanup_renames_loaded_dll_until_next_launch(plugin_logic, tmp_path):
+    bepinex = tmp_path / "BepInEx"
+    old = bepinex / "plugins/AstralPartyKoreanPatch"
+    dll = old / "nested/AstralPartyKoreanPlugin.dll"
+    dll.parent.mkdir(parents=True)
+    shutil.copyfile(sys.executable, dll)  # Any valid PE image; loaded as a mapped image below.
+    image = dll.read_bytes()
+    dll.with_suffix(".dll.removed").write_bytes(b"earlier launch")
+    (old / "translation-pack").mkdir()
+    (old / "translation-pack/latest.json").write_bytes(b"cache")
+    result = plugin_logic({"mode": "cleanup", "bepinex": str(bepinex), "lockedDll": str(dll)})
+    assert result["failed"] is None
+    assert not dll.exists()
+    assert dll.with_suffix(".dll.removed").read_bytes() == image
+    assert not (old / "translation-pack").exists()
+    assert any("Renamed loaded legacy DLL:" in message for message in result["logs"])
+    assert plugin_logic({"mode": "cleanup", "bepinex": str(bepinex)})["failed"] is None
+    assert not old.exists()
+
+
+def test_legacy_cleanup_removes_preloader_log_only(plugin_logic, tmp_path):
+    bepinex = tmp_path / "BepInEx"
+    bepinex.mkdir()
+    (bepinex / "data-redirect.log").write_bytes(b"data")
+    (bepinex / "LogOutput.log").write_bytes(b"data")
+    assert plugin_logic({"mode": "cleanup", "bepinex": str(bepinex)})["failed"] is None
+    assert sorted(path.name for path in bepinex.iterdir()) == ["LogOutput.log"]
+
+
+def test_legacy_cleanup_removes_data_folder_only_when_emptied(plugin_logic, tmp_path):
+    bepinex = tmp_path / "BepInEx"
+    data = bepinex / "AstralPartyKoreanPatch"
+    (data / "payloads").mkdir(parents=True)
+    (data / "addressables-patch.jsonl").write_bytes(b"data")
+    assert plugin_logic({"mode": "cleanup", "bepinex": str(bepinex)})["failed"] is None
+    assert not data.exists()
+
+    (data / "payloads").mkdir(parents=True)
+    (data / "user-notes.txt").write_bytes(b"data")
+    assert plugin_logic({"mode": "cleanup", "bepinex": str(bepinex)})["failed"] is None
+    assert not (data / "payloads").exists()
+    assert (data / "user-notes.txt").read_bytes() == b"data"

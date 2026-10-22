@@ -43,27 +43,25 @@ function New-AstralReleaseNotes {
 | 글로벌판 | `8vJXnINT` | `AstralParty_INT.exe` |
 | 중국판 | `8vJXn6CN` | `AstralParty_CN.exe` |
 
-설치 후 아래 DLL 두 개가 있어야 합니다. ZIP에는 플러그인 DLL 두 개만 포함됩니다.
+설치 후 DLL과 폰트 번들이 함께 있어야 합니다. ZIP에는 아래 두 파일만 포함됩니다.
 
 ```text
 BepInEx/
-├─ patchers/
-│  └─ AstralPartyKoreanPlugin.dataUnity3dRedirect.dll
 └─ plugins/
-   └─ AstralPartyKoreanPatch/
-      └─ AstralPartyKoreanPlugin.dll
+   └─ AstralPartyKoreanPlugin/
+      ├─ AstralPartyKoreanPlugin.dll
+      └─ astralkorean_fonts.bundle
 ```
 
-Steam에서 게임을 실행하면 한글패치 리소스 확인과 다운로드가 진행됩니다. 게임 내 오버레이에서 적용 상태를 확인할 수 있습니다.
+Steam에서 게임을 실행하면 `https://file.maynutlab.com/translation-pack/latest.json`에서 번역 팩을 확인합니다. 게임 내 오버레이에서 적용 상태와 플러그인 업데이트를 확인할 수 있습니다.
 
 ### 기존 버전에서 업데이트
 
-게임을 종료한 뒤 새 DLL 두 개로 교체하세요. 아래 이름의 이전 DLL이 남아 있다면 삭제합니다.
+게임을 종료한 뒤 DLL과 폰트 번들을 함께 새 폴더 `BepInEx/plugins/AstralPartyKoreanPlugin/`에 설치하세요. **2.x 사용자는 이전 `BepInEx/plugins/AstralPartyKoreanPatch/` 폴더와 `BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll`을 삭제해야 합니다.** 두 플러그인의 GUID가 달라 이전 DLL이 남으면 함께 로드될 수 있습니다. 새 플러그인도 구형 폴더와 DLL의 자동 삭제를 시도하며, 로드 중인 DLL은 가능하면 `.removed`로 바꿔 다음 실행에서 삭제합니다. 권한이나 파일 사용 상태에 따라 실패하면 게임 종료 후 직접 삭제하세요.
 
-- `BepInEx/patchers/AstralParty.DataUnity3dRedirect.dll`
-- `BepInEx/plugins/AstralPartyKoreanPatch/AstralParty.AddressablesInProcessPatch.dll`
+더 오래된 `AstralParty.DataUnity3dRedirect.dll`과 `AstralParty.AddressablesInProcessPatch.dll`도 남기지 마세요.
 
-`BepInEx/AstralPartyKoreanPatch`의 리소스 캐시는 계속 사용할 수 있습니다. 플러그인 버전과 자동으로 내려받는 번역 리소스의 버전은 별도로 관리됩니다.
+번역 캐시는 `BepInEx/plugins/AstralPartyKoreanPlugin/translation-pack/`에 보관하므로, 플러그인 폴더를 지우면 캐시까지 함께 제거됩니다. 팩 번호가 커질 때만 갱신하며 세션 중에는 고정합니다. 플러그인 버전과 번역 팩은 별도로 관리합니다. 다운로드 실패 시 검증된 캐시를 사용하고, 캐시도 없거나 번역이 없는 문자열은 원문을 표시합니다.
 
 [전체 변경 내역]({{repo}}/commits/{{tag}}) · [설치 및 문제 해결]({{repo}}#설치) · [문제 제보]({{repo}}/issues)
 '@

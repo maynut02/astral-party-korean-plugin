@@ -25,16 +25,16 @@ $buildRoot = Join-Path $pluginRoot 'dist'
 if (-not $OutputRoot) { $OutputRoot = Join-Path $buildRoot "release/v$Version" }
 $dist = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputRoot)
 $zipName = "AstralPartyKoreanPlugin-v$Version.zip"
-Assert-AstralPackageDirectory -Root $dist -AllowedFiles @('AstralPartyKoreanPlugin.dataUnity3dRedirect.dll', 'AstralPartyKoreanPlugin.dll', 'build-references.json', 'windows-plugin-build.json', $zipName, 'SHA256SUMS.txt')
+Assert-AstralPackageDirectory -Root $dist -AllowedFiles @('AstralPartyKoreanPlugin.dll', 'astralkorean_fonts.bundle', 'build-references.json', 'windows-plugin-build.json', $zipName, 'SHA256SUMS.txt')
 $buildArguments = @{ Version = $Version; RefsRoot = $RefsRoot; WorkRoot = $WorkRoot; OutputRoot = $buildRoot; DotNetPath = $DotNetPath }
 if ($PSBoundParameters.ContainsKey('GameRoot')) { $buildArguments.GameRoot = $GameRoot }
 & (Join-Path $PSScriptRoot 'build.ps1') @buildArguments
 
 $files = [ordered]@{
-    'BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll' = (Join-Path $buildRoot 'AstralPartyKoreanPlugin.dataUnity3dRedirect.dll')
-    'BepInEx/plugins/AstralPartyKoreanPatch/AstralPartyKoreanPlugin.dll' = (Join-Path $buildRoot 'AstralPartyKoreanPlugin.dll')
+    'BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle' = (Join-Path $buildRoot 'astralkorean_fonts.bundle')
+    'BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll' = (Join-Path $buildRoot 'AstralPartyKoreanPlugin.dll')
 }
-foreach ($dll in $files.Values) { Assert-AstralPluginAssembly -Path $dll -Name ([IO.Path]::GetFileNameWithoutExtension($dll)) -Version $Version }
+Assert-AstralPluginAssembly -Path $files['BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll'] -Name 'AstralPartyKoreanPlugin' -Version $Version
 $references = Get-Content -LiteralPath (Join-Path $buildRoot 'build-references.json') -Raw -Encoding utf8 | ConvertFrom-Json
 $package = New-AstralPluginPackage -Files $files -OutputRoot $dist -ZipName $zipName
 if ($dist.TrimEnd('\', '/') -ine $buildRoot.TrimEnd('\', '/')) {
@@ -50,13 +50,12 @@ $metadata = [ordered]@{
         sha256 = $package.Sha256
         size = $package.Size
     }
-    preloader = [ordered]@{
-        version = $Version
-        sha256 = (Get-FileHash -LiteralPath $files['BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll'] -Algorithm SHA256).Hash.ToLowerInvariant()
+    fontBundle = [ordered]@{
+        sha256 = (Get-FileHash -LiteralPath $files['BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle'] -Algorithm SHA256).Hash.ToLowerInvariant()
     }
     plugin = [ordered]@{
         version = $Version
-        sha256 = (Get-FileHash -LiteralPath $files['BepInEx/plugins/AstralPartyKoreanPatch/AstralPartyKoreanPlugin.dll'] -Algorithm SHA256).Hash.ToLowerInvariant()
+        sha256 = (Get-FileHash -LiteralPath $files['BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll'] -Algorithm SHA256).Hash.ToLowerInvariant()
     }
 }
 $metadataPath = Join-Path $dist 'windows-plugin-build.json'

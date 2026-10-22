@@ -76,12 +76,12 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [IO.Compression.ZipFile]::OpenRead((Join-Path $AssetRoot $zipName))
 try {
     $expected = @(
-        'BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll',
-        'BepInEx/plugins/AstralPartyKoreanPatch/AstralPartyKoreanPlugin.dll'
+        'BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle',
+        'BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll'
     )
     $actual = @($archive.Entries | ForEach-Object { $_.FullName } | Sort-Object)
     if ($actual.Count -ne $expected.Count -or ($actual -join "`n") -cne (($expected | Sort-Object) -join "`n")) {
-        throw 'Release ZIP must contain only the two plugin DLLs at their installation paths.'
+        throw 'Release ZIP must contain only the plugin DLL and font bundle at their installation paths.'
     }
 } finally { $archive.Dispose() }
 if ($NotesFile) {

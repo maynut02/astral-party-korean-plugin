@@ -1,124 +1,173 @@
-# AstralPartyKoreanPlugin
+# 아스트랄 파티 한글패치
 
-아스트랄 파티 Steam 글로벌판·중국판에 한국어 리소스를 적용하는 BepInEx 플러그인입니다. 게임을 실행하면 최신 한글패치 리소스를 확인하고, 설치된 게임과 호환되는 파일을 준비합니다.
+[![Release](https://img.shields.io/github/v/release/maynut02/astral-party-korean-plugin?label=release)](https://github.com/maynut02/astral-party-korean-plugin/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/maynut02/astral-party-korean-plugin/total)](https://github.com/maynut02/astral-party-korean-plugin/releases)
+[![License](https://img.shields.io/github/license/maynut02/astral-party-korean-plugin)](LICENSE)
 
-- 게임 실행 시 한글패치 리소스 확인과 자동 다운로드
-- 게임 버전과 파일 해시를 확인한 뒤 패치 적용
-- 내려받은 파일을 캐시에 보관하고 다음 실행에서 재사용
-- 시작 시 진행 상황 표시와 게임 내 패치 상태 오버레이
+Steam판 **아스트랄 파티(Astral Party)** 를 한국어로 플레이할 수 있게 해 주는 [BepInEx](https://github.com/BepInEx/BepInEx) 플러그인입니다.
+
+게임 파일을 수정하지 않습니다. 게임이 텍스트와 폰트를 불러오는 순간에 번역과 한글 폰트를 적용하므로, 게임이 업데이트되어도 플러그인을 다시 설치할 필요가 없습니다.
+
+> 개발사와 관계없는 비공식 팬 번역입니다.
+
+## 특징
+
+- **게임 업데이트 후에도 그대로 동작**: 게임 파일 대신 실행 중 불러온 텍스트를 번역합니다.
+- **번역 자동 갱신**: 게임을 켤 때 최신 번역 팩을 받아 둡니다. 플러그인을 업데이트하지 않아도 번역이 갱신됩니다.
+- **한글 폰트 포함**: 게임 글꼴을 한글 글꼴로 바꿔 깨짐 없이 표시합니다.
+- **상태 창**: 적용된 번역 팩과 업데이트 여부를 게임 화면에서 확인할 수 있습니다.
+- **오프라인 실행**: 인터넷에 연결되지 않으면 마지막으로 받은 번역 팩을 사용합니다.
+
+## 요구 사항
+
+| 항목 | 내용 |
+| --- | --- |
+| 운영체제 | Windows 64비트 |
+| 게임 | Steam판 아스트랄 파티 글로벌판 (중국판은 실험적 지원) |
+| 모드 로더 | [BepInEx 6 Bleeding Edge](https://builds.bepinex.dev/projects/bepinex_be) — **Unity IL2CPP / Windows x64** |
+| 게임 언어 | 글로벌판 `English`, 중국판 `简体中文` (이 언어 자리에 한국어가 들어갑니다) |
+| 인터넷 | 처음 실행할 때 번역 팩을 받기 위해 필요 |
 
 ## 설치
 
-Windows x64의 글로벌판·중국판을 지원합니다. 게임에 **BepInEx 6 Unity IL2CPP Windows x64**가 먼저 설치되어 있어야 합니다. 플러그인 ZIP에는 DLL 두 개만 들어 있으며 BepInEx는 포함하지 않습니다.
+### 1. BepInEx 설치
 
-| Steam판 | 설치 폴더 | 실행 파일 |
-| --- | --- | --- |
-| 글로벌판 | `8vJXnINT` | `AstralParty_INT.exe` |
-| 중국판 | `8vJXn6CN` | `AstralParty_CN.exe` |
+이미 BepInEx 6 IL2CPP를 쓰고 있다면 건너뛰세요.
 
-### 1. BepInEx 설치와 게임용 설정
+1. Steam 라이브러리에서 아스트랄 파티를 우클릭 → **관리 → 로컬 파일 보기**를 누릅니다.
+2. 게임 실행 파일이 있는 폴더로 들어갑니다. 글로벌판은 `8vJXnINT` (`AstralParty_INT.exe`), 중국판은 `8vJXn6CN` (`AstralParty_CN.exe`)입니다.
+3. [BepInEx Bleeding Edge](https://builds.bepinex.dev/projects/bepinex_be)에서 **BepInEx Unity (IL2CPP) for Windows (x64) games**를 받아, 압축 안의 내용을 이 폴더에 그대로 풉니다.
+4. **게임을 실행하기 전에** `BepInEx/config/BepInEx.cfg`를 만들거나 열어 아래 항목을 설정합니다. 아스트랄 파티에서 BepInEx가 정상적으로 초기화되도록 하는 설정입니다.
 
-1. 게임을 종료하고, Steam 라이브러리에서 아스트랄 파티를 우클릭해 **관리 → 로컬 파일 보기**를 선택합니다.
-2. 위 표에서 실행하는 판의 폴더로 들어갑니다. 게임 실행 파일이 있는 위치에 BepInEx와 플러그인을 설치합니다.
-3. [BepInEx 다운로드](https://builds.bepinex.dev/projects/bepinex_be)에서 **Unity IL2CPP Windows x64** 배포물을 내려받아 압축 내용 전체를 이 위치에 복사합니다. 빌드 참조는 설치된 게임의 DLL을 사용하며 특정 BepInEx 빌드 번호를 고정하지 않습니다.
-4. **게임을 처음 실행하기 전에** `BepInEx/config/BepInEx.cfg`를 열고 아래 설정을 적용합니다. 폴더나 파일이 없다면 직접 만드세요. 파일 이름이 `BepInEx.cfg.txt`로 저장되지 않도록 확인하세요.
+   ```ini
+   [Logging]
+   UnityLogListening = false
+   ```
 
-```ini
-[Logging]
-UnityLogListening = false
+   파일이 이미 있으면 `[Logging]` 아래의 `UnityLogListening` 값만 `false`로 바꾸세요. 파일 이름이 `BepInEx.cfg.txt`가 되지 않도록 주의하세요.
 
-[Logging.Console]
-Enabled = false
+5. 게임을 한 번 실행했다가 종료합니다. BepInEx가 처음 준비하는 동안 실행이 평소보다 오래 걸립니다.
 
-[Logging.Disk]
-WriteUnityLog = false
-```
-
-기존 설정 파일이 있다면 위 세 항목만 바꾸세요. 같은 섹션과 항목을 중복으로 추가하지 않습니다. 이 설정은 아스트랄 파티의 BepInEx 초기화 문제를 피하기 위한 것입니다.
-
-설정을 저장한 뒤 Steam에서 게임을 한 번 실행하고 종료합니다. 최초 실행은 BepInEx의 참조 파일 생성 때문에 시간이 걸릴 수 있습니다.
-
-### 2. 한글패치 플러그인 설치
+### 2. 한글패치 설치
 
 1. 게임을 종료합니다.
-2. [Releases](https://github.com/maynut02/astral-party-korean-plugin/releases)에서 `AstralPartyKoreanPlugin-v버전.zip`을 내려받아 압축을 풉니다.
-3. 압축에서 꺼낸 `BepInEx` 폴더를 위의 게임 실행 파일이 있는 위치에 복사하고, 기존 폴더와 합칩니다.
+2. [최신 릴리스](https://github.com/maynut02/astral-party-korean-plugin/releases/latest)에서 `AstralPartyKoreanPlugin-v<버전>.zip`을 받습니다.
+3. 압축 안의 `BepInEx` 폴더를 게임 폴더에 복사해 기존 `BepInEx` 폴더와 합칩니다.
+4. 게임 언어를 `English`(중국판은 `简体中文`)로 설정하고 게임을 실행합니다.
 
-글로벌판의 설치 후 파일 위치는 다음과 같습니다. 중국판은 같은 구조를 `8vJXn6CN`에 설치합니다.
+설치가 끝나면 다음과 같은 구조가 됩니다.
 
 ```text
-Astral Party/
-└─ 8vJXnINT/
-   ├─ AstralParty_INT.exe
-   └─ BepInEx/
-      ├─ config/
-      │  └─ BepInEx.cfg
-      ├─ patchers/
-      │  └─ AstralPartyKoreanPlugin.dataUnity3dRedirect.dll
-      └─ plugins/
-         └─ AstralPartyKoreanPatch/
-            └─ AstralPartyKoreanPlugin.dll
+8vJXnINT/
+├─ AstralParty_INT.exe
+└─ BepInEx/
+   ├─ config/BepInEx.cfg
+   └─ plugins/
+      └─ AstralPartyKoreanPlugin/
+         ├─ AstralPartyKoreanPlugin.dll
+         └─ astralkorean_fonts.bundle
 ```
-
-수동 설치할 때도 위 위치에 DLL 두 개를 모두 넣으세요. Release에 함께 첨부된 `SHA256SUMS.txt`는 ZIP의 무결성 확인용이며 게임 폴더에 복사할 필요는 없습니다.
 
 ## 사용 방법
 
-Steam에서 게임을 실행하면 한글패치 확인과 다운로드 진행 창이 표시됩니다. 준비가 끝나면 게임이 시작되고, 게임 내 오버레이에서 게임 버전·리비전과 설치된 패치·최신 패치의 버전, 적용 상태를 확인할 수 있습니다.
+게임을 실행하면 화면 오른쪽 아래에 상태 창이 나타납니다.
 
-오버레이는 닫기 버튼이나 Esc로 닫습니다. 창을 닫아도 한글패치는 계속 적용되며, 다음 게임 실행에서 다시 표시됩니다.
+| 항목 | 내용 |
+| --- | --- |
+| 게임 | 실행 중인 게임의 버전과 리비전 |
+| 번역 팩 | 적용된 번역 팩의 번호, 기준 게임 버전과 리비전 |
+| 플러그인 | 설치된 버전과 최신 버전 |
+| 상태 | 번역 팩 적용 결과 |
 
-번역 리소스는 [한글패치 리소스 저장소](https://github.com/maynut02/astral-party-korean-patch/releases)에서 자동으로 가져옵니다. 오버레이의 패치 버전은 번역 리소스의 버전이며, 플러그인 자체의 버전과 별도로 관리합니다. 업데이트 확인에 실패하면 현재 게임과 호환되는 검증된 캐시를 사용합니다. 유효한 캐시도 없으면 원본 리소스로 실행합니다.
+**X** 버튼이나 **Esc**로 닫을 수 있습니다. 닫아도 번역은 계속 적용되며, 다음 실행 때 다시 표시됩니다.
 
-매 실행에서 최신 한글패치를 확인하고, 설치된 원본 게임 데이터와 호환되면 Steam 업데이트 직후 첫 실행부터 적용합니다. 이전 실행의 카탈로그가 남아 있거나 아직 없어도 대응 패치를 준비하며, 게임이 실제 요청한 번들의 이름·해시와 일치하는 한국어 리소스를 연결합니다. 대응 패치가 없거나 파일 검증에 실패하면 원본으로 실행합니다. 플러그인을 빼고 넣거나 캐시를 삭제할 필요는 없습니다.
+번역 팩은 실행할 때마다 확인합니다. 게임을 하는 중에 새 팩이 나오면 다음 실행부터 적용됩니다. 아직 번역되지 않은 문장(게임 업데이트로 새로 추가된 문장 등)은 원문으로 표시됩니다.
 
-## 업데이트와 제거
+## 업데이트
 
-플러그인을 업데이트할 때는 게임을 종료한 뒤 새 ZIP의 DLL 두 개를 같은 위치에 교체하세요. 기존에 아래 이름의 DLL을 설치했다면 먼저 삭제합니다.
+상태 창의 **최신** 버전이 설치된 버전보다 높으면 플러그인을 업데이트하세요. 게임을 종료한 뒤 새 ZIP을 같은 방법으로 덮어쓰면 됩니다. 번역 팩만 바뀐 경우에는 따로 할 일이 없습니다.
 
-- `BepInEx/patchers/AstralParty.DataUnity3dRedirect.dll`
-- `BepInEx/plugins/AstralPartyKoreanPatch/AstralParty.AddressablesInProcessPatch.dll`
+### 2.x에서 업데이트하는 경우
 
-최신 이름의 DLL은 각각 한 개만 유지하세요. 업데이트 시 `BepInEx/AstralPartyKoreanPatch`의 리소스 캐시는 그대로 사용할 수 있습니다.
+3.0부터 설치 방식이 바뀌었습니다. 새 버전을 설치하기 전에 아래 파일과 폴더를 지워 주세요.
 
-플러그인을 제거하려면 게임을 종료하고 설치한 DLL 두 개를 삭제하세요. 내려받은 리소스까지 제거하려면 `BepInEx/AstralPartyKoreanPatch` 폴더도 삭제합니다. 게임 원본 파일은 플러그인이 덮어쓰지 않으므로 제거를 위해 다시 복원할 필요가 없습니다.
+- `BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll`
+- `BepInEx/plugins/AstralPartyKoreanPatch/`
+- `BepInEx/AstralPartyKoreanPatch/`
 
-## 문제가 생겼을 때
+지우지 않으면 새 플러그인이 처음 실행될 때 정리를 시도합니다. 다만 파일이 사용 중이면 다음 실행에서야 지워지므로, 직접 지우는 편이 확실합니다. 예전에 게임 파일을 직접 덮어쓰는 수동 패치를 썼다면 Steam의 **게임 파일 무결성 확인**으로 원본을 먼저 복구하세요.
 
-- **한국어가 적용되지 않음:** DLL 두 개의 설치 위치와 BepInEx 초기 설정을 확인하세요. 처음 준비할 때는 인터넷 연결이 필요합니다.
-- **시작에 시간이 오래 걸림:** 최초 BepInEx 초기화나 패치 다운로드 중일 수 있습니다. 진행 창과 로그에서 현재 상태를 확인하세요.
-- **원본 리소스 사용으로 표시됨:** 설치된 게임과 패치의 호환 정보가 맞지 않거나 준비에 실패했을 수 있습니다. 게임 버전과 로그를 확인하세요.
-- **`dobby.dll` 관련 오류:** `BepInEx/core/dobby.dll`이 있는지 확인하고, BepInEx의 Unity IL2CPP Windows x64 배포물이 정상적으로 설치됐는지 확인하세요.
+## 제거
 
-해결되지 않으면 [Issues](https://github.com/maynut02/astral-party-korean-plugin/issues)에 플러그인 버전, 글로벌판·중국판 여부, 게임 버전, 재현 방법과 아래 로그의 관련 내용을 알려주세요. 공개 전에 개인 경로는 가려주세요.
+게임을 종료하고 `BepInEx/plugins/AstralPartyKoreanPlugin` 폴더를 지웁니다. 받아 둔 번역 팩도 이 폴더 안에 있어 함께 지워집니다. BepInEx까지 지우려면 게임 폴더에서 `BepInEx`, `dotnet` 폴더와 `winhttp.dll`, `doorstop_config.ini`, `.doorstop_version`, `changelog.txt`, `LICENSE-BepInEx.txt`를 지우세요.
 
-- `BepInEx/data-redirect.log` — 시작 시 리소스 확인·다운로드·검증. 준비 실패 시 내부 예외와 스택 추적까지 기록하므로 오류 줄 아래의 상세 내용도 함께 전달하세요.
-- `BepInEx/AstralPartyKoreanPatch/addressables-patch.jsonl` — 게임 내 리소스 연결과 적용 상태
-- `BepInEx/LogOutput.txt` — BepInEx와 플러그인 로딩
+## 문제 해결
 
-## 빌드
+<details>
+<summary>한국어가 나오지 않아요</summary>
 
-Windows x64에서 PowerShell 7, Git과 BepInEx가 초기화된 게임을 준비하고 저장소 루트에서 실행합니다.
+- 게임 언어가 `English`(중국판 `简体中文`)인지 확인하세요.
+- `BepInEx/plugins/AstralPartyKoreanPlugin/` 안에 DLL과 폰트 번들이 함께 있는지 확인하세요.
+- 게임을 켜도 상태 창이 나타나지 않으면 `BepInEx/LogOutput.log`에서 `Astral Party Korean Patch`를 찾아보세요. 이 이름이 없으면 BepInEx가 동작하지 않는 것이므로 BepInEx 설치와 `BepInEx.cfg` 설정을 다시 확인하세요.
+- 처음 실행할 때는 번역 팩을 받아야 하므로 인터넷 연결이 필요합니다.
 
-```powershell
-.\scripts\setup.ps1
+</details>
+
+<details>
+<summary>일부 문장이 영어(원문)로 나와요</summary>
+
+아직 번역되지 않은 문장입니다. 게임 업데이트로 추가된 문장은 번역이 끝나면 다음 번역 팩에 들어갑니다.
+
+</details>
+
+<details>
+<summary>상태 창에 경고나 오류가 표시돼요</summary>
+
+| 상태 | 해결 방법 |
+| --- | --- |
+| 오프라인: 저장된 번역 팩 사용 중 | 인터넷 연결을 확인하세요. 저장된 번역으로 계속 플레이할 수 있습니다. |
+| 번역 팩이 없어 원문을 표시합니다 | 인터넷에 연결한 뒤 게임을 다시 실행하세요. |
+| 번역 팩 형식이 변경되었습니다 | 최신 플러그인으로 업데이트하세요. |
+| 이전 파일 정리 실패 | 표시된 파일을 직접 지우세요. ([2.x에서 업데이트하는 경우](#2x에서-업데이트하는-경우) 참고) |
+
+</details>
+
+해결되지 않으면 [Issues](https://github.com/maynut02/astral-party-korean-plugin/issues)에 남겨 주세요. 플러그인 버전, 게임 버전(상태 창 내용)과 `BepInEx/LogOutput.log`를 함께 올려 주시면 빠르게 확인할 수 있습니다. 로그를 올리기 전에 개인 경로는 가려 주세요.
+
+번역이 어색하거나 틀린 곳은 [번역 사이트](https://astral.maynutlab.com)에서 제안할 수 있습니다.
+
+## 동작 방식
+
+```mermaid
+flowchart LR
+    A[게임 실행] --> B[번역 팩 확인<br/>file.maynutlab.com]
+    B -->|새 팩| C[내려받아 검증 후 저장]
+    B -->|실패| D[저장된 팩 사용]
+    C --> E[게임이 텍스트를 불러올 때<br/>번역 적용]
+    D --> E
+    A --> F[게임이 폰트를 불러올 때<br/>한글 폰트로 교체]
 ```
 
-`setup.ps1`은 게임의 참조 DLL을 `.work/refs`에 복사하고 `global.json`이 지정한 로컬 .NET SDK를 `.work/dotnet`에 준비합니다. 첫 SDK 설치에는 인터넷 연결이 필요합니다.
+- 번역은 게임의 언어 데이터(`English` / `简体中文`)를 불러오는 순간 키와 ID 기준으로 바꿔 넣습니다. 그래서 문장 위치가 바뀌는 게임 업데이트에도 영향을 받지 않습니다.
+- 번역 팩은 한 번 게임을 실행하는 동안 바뀌지 않습니다. 게임 도중에 문장이 섞이지 않게 하기 위해서입니다.
+- 게임 설치 폴더의 파일은 읽기만 하고 수정하지 않습니다.
 
-DLL만 필요하면 빌드 명령을, 릴리즈 파일도 필요하면 패키징 명령을 선택하세요. 패키징은 항상 최신 소스를 빌드하므로 선행 빌드는 필요 없습니다.
+자세한 구조는 [docs/architecture.md](docs/architecture.md)에 있습니다.
 
-```powershell
-.\scripts\build.ps1             # DLL 두 개와 빌드 참조 기록 생성
-.\scripts\package-release.ps1   # 소스 빌드 후 DLL·ZIP·체크섬 생성
-```
+## 개발
 
-빌드 결과는 `dist/`, 릴리즈 파일은 `dist/release/vX.Y.Z/`에 생성됩니다. `VERSION`이 제품 버전의 유일한 기준이며 빌드와 패키징은 버전을 올리지 않습니다. 경로 옵션과 전체 검사 명령은 [개발 문서](docs/development.md), 버전 준비와 GitHub Release 업로드는 [릴리즈 문서](docs/releases.md)에 있습니다.
+빌드 환경 준비, 테스트, 릴리스 방법은 아래 문서를 참고하세요.
 
 - [개발 환경과 검증](docs/development.md)
-- [로컬 빌드와 릴리즈](docs/releases.md)
+- [빌드와 릴리스](docs/releases.md)
 - [코드 구조와 실행 흐름](docs/architecture.md)
+
+```powershell
+.\scripts\setup.ps1    # 게임 참조 DLL과 로컬 .NET SDK 준비
+.\scripts\build.ps1    # dist/에 DLL과 폰트 번들 생성
+.\scripts\check.ps1    # 전체 검사
+```
 
 ## 라이선스
 
-소스 코드와 문서는 [MIT 라이선스](LICENSE)로 배포합니다. 저작권 및 라이선스 고지를 유지하면 사용, 수정, 재배포와 상업적 이용이 가능합니다. 게임과 외부 의존성에는 각각의 라이선스가 적용됩니다.
+[MIT](LICENSE). 아스트랄 파티의 게임 데이터와 상표는 원저작자에게 있습니다.

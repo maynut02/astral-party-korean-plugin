@@ -7,3 +7,4 @@
 *.7z binary
 *.pfx binary
 *.p12 binary
+*.bundle binary

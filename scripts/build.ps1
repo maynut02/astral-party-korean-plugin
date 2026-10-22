@@ -32,7 +32,6 @@ if (-not $RefsRoot) {
 $RefsRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($RefsRoot)
 Assert-AstralReferences $RefsRoot
 $projects = @(
-    'src/Preloader/AstralPartyKoreanPlugin.dataUnity3dRedirect.csproj',
     'src/Plugin/AstralPartyKoreanPlugin.csproj'
 )
 # Resolve global.json from this project even when invoked from another working directory.
@@ -59,6 +58,7 @@ $outputs = foreach ($project in $projects) {
 }
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
 foreach ($dll in $outputs) { Copy-Item -LiteralPath $dll -Destination (Join-Path $dist ([IO.Path]::GetFileName($dll))) -Force }
+Copy-Item -LiteralPath (Join-Path $pluginRoot 'assets/fonts/astralkorean_fonts.bundle') -Destination (Join-Path $dist 'astralkorean_fonts.bundle') -Force
 [ordered]@{ references = @(Get-AstralReferenceVersions $RefsRoot) } |
     ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $dist "build-references.json") -Encoding utf8NoBOM
 Write-Output "output=$dist"
