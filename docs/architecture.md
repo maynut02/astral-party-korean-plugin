@@ -97,7 +97,7 @@ https://github.com/maynut02/astral-party-korean-plugin/releases/latest/download/
 ```
 
 - 매니페스트 원본 UTF-8 바이트를 **JSON 파싱 전** 내장 SPKI 공개 키로 검증합니다. 서명은 ECDSA P-256 / SHA-256, 64바이트 IEEE P1363이며 `.sig`에는 ASCII base64로 저장합니다. 개인 키는 플러그인에 포함하지 않습니다.
-- `schemaVersion: 1`, 정식 SemVer, `minimumBepInEx`, 패키지 이름·URL·크기·SHA-256 및 두 파일의 경로·크기·SHA-256을 필수로 검사합니다. 중복·누락·알 수 없는 속성과 파일 경로는 거부합니다. 패키지는 정확히 `AstralPartyKoreanPlugin-vX.Y.Z.zip`, URL은 이 저장소의 `https://github.com/maynut02/astral-party-korean-plugin/releases/download/vX.Y.Z/` 아래 동일 파일이어야 합니다.
+- `schemaVersion: 1`, 정식 SemVer, `minimumBepInEx`, 패키지 이름·URL·크기·SHA-256 및 두 파일의 경로·크기·SHA-256을 필수로 검사합니다. 중복·누락·알 수 없는 속성과 파일 경로는 거부합니다. 패키지는 정확히 `update-vX.Y.Z.zip`, URL은 이 저장소의 `https://github.com/maynut02/astral-party-korean-plugin/releases/download/vX.Y.Z/` 아래 동일 파일이어야 합니다. 3.0.0만 `AstralPartyKoreanPlugin-vX.Y.Z.zip`을 요구하므로 이후 릴리스로 자동 업데이트되지 않습니다.
 - 매니페스트는 최대 64 KiB, 서명 텍스트는 256바이트, ZIP과 개별 파일은 각각 64 MiB입니다. 네트워크 응답은 스트리밍으로 상한을 지키고, 실제 ZIP 크기·SHA-256을 대조한 뒤 메모리에서 풉니다. ZIP에는 명시한 DLL과 폰트 번들 두 정규 파일만 허용하며 중복·추가·누락·디렉터리·심볼릭 링크·상대 경로 이동은 거부합니다. 해제한 모든 파일의 실제 크기·해시가 맞아야 설치 단계로 넘어갑니다.
 - 설치된 버전보다 높은 정식 릴리스만 설치합니다. 설치된 버전이 프리릴리스이면 최신 버전은 표시하되 설치하지 않습니다. `Paths.BepInExVersion`의 실행 중 버전을 `minimumBepInEx`와 SemVer로 비교합니다. 이 API의 외부 반환 타입을 새 참조로 요구하지 않도록 정확한 공개 속성을 리플렉션으로 읽으며, 읽기 실패·최소 버전 미달 시 자동 설치를 중단하고 수동 업데이트를 안내합니다.
 - BepInEx 플러그인 설정 `BepInEx/config/astral-party.korean-patch.cfg`의 `[Update] AutoUpdate = true`가 기본값입니다. `false`이면 최신 버전만 확인하고 자동 설치하지 않습니다. DLL까지 이미 교체된 업데이트의 남은 폰트 번들만 다음 시작 때 마저 적용합니다.
@@ -112,7 +112,7 @@ https://github.com/maynut02/astral-party-korean-plugin/releases/latest/download/
 3. Unity가 폰트 번들을 열어 교체가 거부되면 기존 번들은 그대로 두고 검증된 `astralkorean_fonts.bundle.new`를 유지합니다. DLL 교체 성공 시 설치 완료·재시작 필요 상태를 표시합니다.
 4. 다음 시작 때 `UpdateInstaller.PrepareStartup`은 **실행 중인 플러그인이 예약 매니페스트와 같은 버전일 때만**(DLL 교체가 이미 끝난 경우) 서명과 남은 `astralkorean_fonts.bundle.new`의 크기·해시를 다시 확인해 폰트를 읽기 전에 적용합니다. 그 밖의 예약 상태(교체되지 않은 `*.dll.new`, 일부만 쓴 예약, 서명 없는·오래된·프리릴리스 대상 예약, `*.tmp`)는 적용하지 않고 모두 지웁니다. 아직 새 릴리스가 필요하면 온라인 확인이 일반 설치 조건(`AutoUpdate`, `minimumBepInEx`)으로 다시 받습니다. 번들 검증 실패는 이번 세션에만 경고하고, 적용 I/O 실패는 예약을 남겨 다음 시작에 재시도합니다. 유효한 현재 파일이 있으면 알려진 두 `*.old`만 지우고, 현재 파일이 없으면 남아 있는 백업을 복원합니다. 설치 프로그램(`install.ps1`)으로 수동 설치하면 남은 예약 파일도 지웁니다.
 
-DLL 교체 도중 프로세스가 강제 종료되어 `AstralPartyKoreanPlugin.dll` 없이 `.old`만 남는 경우는 DLL 자체가 로드되지 않으므로 자동 복구할 수 없습니다(`File.Replace`의 이름 바꾸기 사이 짧은 구간). 이때는 `install.bat`이나 플러그인 ZIP으로 다시 설치합니다.
+DLL 교체 도중 프로세스가 강제 종료되어 `AstralPartyKoreanPlugin.dll` 없이 `.old`만 남는 경우는 DLL 자체가 로드되지 않으므로 자동 복구할 수 없습니다(`File.Replace`의 이름 바꾸기 사이 짧은 구간). 이때는 `install.bat`이나 업데이트 ZIP으로 다시 설치합니다.
 
 확인·검증·예약·교체·복구·정리·실패를 BepInEx 로그에 남깁니다. 다운로드나 검증 실패는 기존 DLL을 유지하고 상태창에 짧은 수동 업데이트 안내를 표시합니다. 구형 파일 정리 실패는 업데이트 성공·실패 메시지보다 우선하는 오류로 유지합니다.
 

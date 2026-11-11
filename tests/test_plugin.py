@@ -538,7 +538,7 @@ def _update_request(tmp_path, *, version="3.1.0", manifest_change=None, zip_entr
         for name, data in entries:
             output.writestr(name, data)
     package = archive.getvalue()
-    name = f"AstralPartyKoreanPlugin-v{version}.zip"
+    name = f"update-v{version}.zip"
     manifest = {
         "schemaVersion": 1, "version": version,
         "package": {
@@ -638,6 +638,9 @@ def test_plugin_update_version_loader_and_config_gates(plugin_logic, tmp_path, i
     lambda manifest: manifest.update(unknown=True),
     lambda manifest: manifest.update(version="3.1.0-rc.1"),
     lambda manifest: manifest["package"].update(name="another.zip"),
+    # The installer package owns this name; 3.0.0 used it for the update package.
+    lambda manifest: manifest["package"].update(
+        name="AstralPartyKoreanPlugin-v3.1.0.zip", url=manifest["package"]["url"].replace("update-v", "AstralPartyKoreanPlugin-v")),
     lambda manifest: manifest["package"].update(url=manifest["package"]["url"].replace("github.com/", "github.com.evil.example/")),
     lambda manifest: manifest["package"].update(url=manifest["package"]["url"].replace("/maynut02/", "/someone-else/")),
     lambda manifest: manifest["package"].update(url=manifest["package"]["url"].replace("https:", "http:")),

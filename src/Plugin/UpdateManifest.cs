@@ -40,7 +40,7 @@ internal sealed class UpdateManifest
         MinimumBepInEx = SemanticVersion.Parse(root.GetProperty("minimumBepInEx").GetString() ?? "");
         var package = root.GetProperty("package");
         RequireObject(package, "name", "url", "size", "sha256");
-        var name = "AstralPartyKoreanPlugin-v" + Version.Text + ".zip";
+        var name = "update-v" + Version.Text + ".zip";
         if (package.GetProperty("name").GetString() != name)
             throw new InvalidDataException("Unexpected plugin update package name");
         var url = package.GetProperty("url").GetString();

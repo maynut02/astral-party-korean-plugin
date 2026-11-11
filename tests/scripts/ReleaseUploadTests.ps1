@@ -8,8 +8,8 @@ $fixtureParent = Join-Path $repoRoot ('.work/upload-tests/' + [Guid]::NewGuid().
 $git = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Source
 $utf8 = [Text.UTF8Encoding]::new($false)
 $tag = 'v0.0.1'
-$zipName = "AstralPartyKoreanPlugin-$tag.zip"
-$assetNames = @($zipName, "AstralPartyKoreanPlugin-$tag-full.zip", 'update.json', 'update.json.sig', 'SHA256SUMS.txt')
+$zipName = "update-$tag.zip"
+$assetNames = @($zipName, "AstralPartyKoreanPlugin-$tag.zip", 'update.json', 'update.json.sig', 'SHA256SUMS.txt')
 . (Join-Path $repoRoot 'scripts/package-files.ps1')
 . (Join-Path $repoRoot 'scripts/release-notes.ps1')
 $dllEntry = @(
@@ -252,7 +252,7 @@ function Write-Checksum($Fixture) {
         [IO.File]::WriteAllText($path, 'fixture DLL contents; upload never inspects assembly metadata', $utf8)
         $sources[$entry] = $path
     }
-    Copy-Item -LiteralPath (Join-Path $Fixture.Assets $zipName) -Destination (Join-Path $Fixture.Assets "AstralPartyKoreanPlugin-$tag-full.zip") -Force
+    Copy-Item -LiteralPath (Join-Path $Fixture.Assets $zipName) -Destination (Join-Path $Fixture.Assets "AstralPartyKoreanPlugin-$tag.zip") -Force
     New-AstralUpdateManifest -Version '0.0.1' -Repository 'owner/repo' -OutputRoot $Fixture.Assets -Files $sources -SigningKeyPath $Fixture.KeyPath -PublicKey $Fixture.PublicKey
 }
 function Write-TestZip($Fixture, [string[]]$Entries = $dllEntry) {
@@ -1013,7 +1013,7 @@ try {
             $manifest = [IO.File]::ReadAllText($manifestPath)
             if ($kind -ceq 'wrong-hash') { $manifest = ('0' * 64) + "  $zipName`n" }
             elseif ($kind -ceq 'extra-dll-line') { $manifest += ('0' * 64) + "  AstralPartyKoreanPlugin.dll`n" }
-            else { $manifest = $manifest.Replace($zipName, $zipName.ToLowerInvariant()) }
+            else { $manifest = $manifest.Replace($zipName, $zipName.ToUpperInvariant()) }
             [IO.File]::WriteAllText($manifestPath, $manifest, $utf8)
             Assert-Rejected $f 'Release checksums must match both ZIPs and update.json'
             Assert-NoCalls $f

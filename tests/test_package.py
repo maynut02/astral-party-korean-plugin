@@ -41,12 +41,12 @@ $files = [ordered]@{
     'BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle' = (Join-Path $root 'astralkorean_fonts.bundle')
 }
 $runtime = New-AstralZipPackage -Files ([ordered]@{ 'winhttp.dll' = [Text.Encoding]::ASCII.GetBytes('pinned runtime fixture') }) -OutputRoot $root -ZipName 'runtime.zip'
-New-AstralZipPackage -Files $files -OutputRoot $root -ZipName 'AstralPartyKoreanPlugin-v4.5.6.zip' | Out-Null
+New-AstralZipPackage -Files $files -OutputRoot $root -ZipName 'update-v4.5.6.zip' | Out-Null
 $full = [ordered]@{}
 foreach ($file in $files.GetEnumerator()) { $full[$file.Key] = $file.Value }
 $full['BepInEx/config/BepInEx.cfg'] = [Text.Encoding]::UTF8.GetBytes("[Logging]`r`nUnityLogListening = false`r`n[Logging.Console]`r`nEnabled = false`r`n")
 foreach ($name in @('install.ps1', 'install.bat', 'LICENSE-BepInEx.txt')) { $full[$name] = Join-Path $root $name }
-New-AstralZipPackage -Files $full -OutputRoot $root -ZipName 'AstralPartyKoreanPlugin-v4.5.6-full.zip' -BaseArchive $runtime.Path | Out-Null
+New-AstralZipPackage -Files $full -OutputRoot $root -ZipName 'AstralPartyKoreanPlugin-v4.5.6.zip' -BaseArchive $runtime.Path | Out-Null
 $key = [Security.Cryptography.ECDsa]::Create([Security.Cryptography.ECCurve+NamedCurves]::nistP256)
 try {
     $publicKey = [Convert]::ToBase64String($key.ExportSubjectPublicKeyInfo())
@@ -89,7 +89,7 @@ def test_plugin_zip_contains_exactly_manifest_files(package) -> None:
 
 def test_signed_manifest_and_three_checksums_describe_actual_bytes(package) -> None:
     work, manifest = package
-    name = f"AstralPartyKoreanPlugin-v{RELEASE}.zip"
+    name = f"update-v{RELEASE}.zip"
     assert manifest["schemaVersion"] == 1
     assert manifest["version"] == RELEASE
     assert manifest["minimumBepInEx"] == "6.0.0-be.788"
@@ -103,7 +103,7 @@ def test_signed_manifest_and_three_checksums_describe_actual_bytes(package) -> N
     assert manifest["package"]["sha256"] == hashlib.sha256(data).hexdigest()
     assert not (work / "update.json").read_bytes().startswith(b"\xef\xbb\xbf")
     assert len(base64.b64decode((work / "update.json.sig").read_bytes(), validate=True)) == 64
-    names = [name, f"AstralPartyKoreanPlugin-v{RELEASE}-full.zip", "update.json"]
+    names = [name, f"AstralPartyKoreanPlugin-v{RELEASE}.zip", "update.json"]
     assert (work / "SHA256SUMS.txt").read_text(encoding="utf-8").splitlines() == [
         f"{hashlib.sha256((work / item).read_bytes()).hexdigest()}  {item}"
         for item in names
@@ -112,7 +112,7 @@ def test_signed_manifest_and_three_checksums_describe_actual_bytes(package) -> N
 
 def test_full_zip_has_runtime_config_and_offline_scripts(package) -> None:
     work, _ = package
-    with ZipFile(work / f"AstralPartyKoreanPlugin-v{RELEASE}-full.zip") as archive:
+    with ZipFile(work / f"AstralPartyKoreanPlugin-v{RELEASE}.zip") as archive:
         assert set(archive.namelist()) == set(EXPECTED) | {
             "winhttp.dll",
             "BepInEx/config/BepInEx.cfg",

@@ -33,9 +33,9 @@ function New-AstralReleaseNotes {
     $installation = @'
 ## 설치
 
-1. 게임을 종료하고 [AstralPartyKoreanPlugin-{{tag}}-full.zip]({{repo}}/releases/download/{{tag}}/AstralPartyKoreanPlugin-{{tag}}-full.zip)을 내려받아 별도 폴더에 압축을 풉니다.
+1. 게임을 종료하고 [AstralPartyKoreanPlugin-{{tag}}.zip]({{repo}}/releases/download/{{tag}}/AstralPartyKoreanPlugin-{{tag}}.zip)을 내려받아 별도 폴더에 압축을 풉니다.
 2. **install.bat**를 실행합니다. 인터넷 없이 게임을 찾아 **BepInEx 6 Unity IL2CPP Windows x64 (be.788)**, `BepInEx/config/BepInEx.cfg` 설정과 플러그인을 설치하고 게임을 시작합니다. 설치 EXE는 사용하지 않습니다.
-3. 이미 BepInEx가 준비되어 있고 수동으로 업데이트하려면 [AstralPartyKoreanPlugin-{{tag}}.zip]({{repo}}/releases/download/{{tag}}/AstralPartyKoreanPlugin-{{tag}}.zip)의 `BepInEx` 폴더를 **게임 실행 파일이 있는 폴더**에 복사합니다.
+3. 이미 BepInEx가 준비되어 있고 플러그인 파일만 직접 교체하려면 [update-{{tag}}.zip]({{repo}}/releases/download/{{tag}}/update-{{tag}}.zip)의 `BepInEx` 폴더를 **게임 실행 파일이 있는 폴더**에 복사합니다. 자동 업데이트가 내려받는 파일과 같습니다.
 4. 게임 언어를 글로벌판 `English`, 중국판 `简体中文`로 설정합니다. 자세한 내용은 [설치 안내]({{repo}}#설치)를 참고하세요.
 
 | Steam판 | 설치 폴더 | 실행 파일 |
@@ -43,7 +43,7 @@ function New-AstralReleaseNotes {
 | 글로벌판 | `8vJXnINT` | `AstralParty_INT.exe` |
 | 중국판 | `8vJXn6CN` | `AstralParty_CN.exe` |
 
-설치 후 DLL과 폰트 번들이 함께 있어야 합니다. 플러그인 전용 ZIP에는 아래 두 파일만 포함되며 전체 ZIP에는 BepInEx와 오프라인 설치 스크립트도 들어 있습니다.
+설치 후 DLL과 폰트 번들이 함께 있어야 합니다. `update-{{tag}}.zip`에는 아래 두 파일만 포함되며 설치용 ZIP에는 BepInEx와 오프라인 설치 스크립트도 들어 있습니다.
 
 ```text
 BepInEx/
@@ -56,6 +56,8 @@ BepInEx/
 Steam에서 게임을 실행하면 `https://file.maynutlab.com/translation-pack/latest.json`에서 번역 팩을 확인합니다. 플러그인도 서명된 최신 업데이트를 검증해 자동으로 설치합니다. 게임 내 오버레이에 재시작 안내가 나오면 **지금 다시 시작**을 누르거나 게임을 다시 실행하세요.
 
 ### 기존 버전에서 업데이트
+
+3.0.0은 업데이트 패키지 이름이 달라 자동으로 업데이트되지 않습니다. 설치용 ZIP의 **install.bat**으로 한 번 다시 설치하세요.
 
 게임을 종료한 뒤 DLL과 폰트 번들을 함께 새 폴더 `BepInEx/plugins/AstralPartyKoreanPlugin/`에 설치하세요. **2.x 사용자는 이전 `BepInEx/plugins/AstralPartyKoreanPatch/` 폴더와 `BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll`을 삭제해야 합니다.** 두 플러그인의 GUID가 달라 이전 DLL이 남으면 함께 로드될 수 있습니다. 새 플러그인도 구형 폴더와 DLL의 자동 삭제를 시도하며, 로드 중인 DLL은 가능하면 `.removed`로 바꿔 다음 실행에서 삭제합니다. 권한이나 파일 사용 상태에 따라 실패하면 게임 종료 후 직접 삭제하세요.
 

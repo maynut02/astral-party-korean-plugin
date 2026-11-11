@@ -92,20 +92,22 @@ GitHub에 게시하는 다섯 파일:
 
 | 파일 | 내용 |
 | --- | --- |
-| `AstralPartyKoreanPlugin-vX.Y.Z.zip` | DLL과 폰트 번들만 포함한 플러그인 업데이트 ZIP |
-| `AstralPartyKoreanPlugin-vX.Y.Z-full.zip` | 고정 BepInEx·설정·플러그인·라이선스·오프라인 설치 스크립트 |
-| `update.json` | 플러그인 ZIP과 두 파일의 크기·SHA-256, 버전, 최소 BepInEx 버전 |
+| `AstralPartyKoreanPlugin-vX.Y.Z.zip` | 설치용 ZIP: 고정 BepInEx·설정·플러그인·라이선스·오프라인 설치 스크립트 |
+| `update-vX.Y.Z.zip` | 업데이트 ZIP: DLL과 폰트 번들만 포함하며 플러그인의 자동 업데이트가 내려받음 |
+| `update.json` | 업데이트 ZIP과 두 파일의 크기·SHA-256, 버전, 최소 BepInEx 버전 |
 | `update.json.sig` | 정확한 JSON 바이트의 ECDSA P-256 / SHA-256 서명; IEEE P1363 64바이트를 ASCII base64로 저장 |
-| `SHA256SUMS.txt` | 플러그인 ZIP, 전체 ZIP, `update.json`의 소문자 SHA-256 세 줄 |
+| `SHA256SUMS.txt` | 업데이트 ZIP, 설치용 ZIP, `update.json`의 소문자 SHA-256 세 줄 |
 
-플러그인 ZIP에는 아래 두 파일만 있습니다.
+3.0.0 플러그인은 업데이트 ZIP을 `AstralPartyKoreanPlugin-vX.Y.Z.zip`이라는 이름으로만 받으므로 3.0.1 이후로는 자동 업데이트되지 않습니다. 업데이트 ZIP의 이름은 설치된 플러그인이 검사하므로 다시 바꾸면 그때까지의 모든 설치본이 같은 상태가 됩니다.
+
+업데이트 ZIP에는 아래 두 파일만 있습니다.
 
 ```text
 BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll
 BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle
 ```
 
-전체 ZIP은 게임 실행 파일이 있는 폴더 구조입니다. 고정 BepInEx ZIP의 모든 항목에 위 두 파일과 아래 항목을 추가합니다. 설치 EXE는 만들지 않습니다.
+설치용 ZIP은 게임 실행 파일이 있는 폴더 구조입니다. 고정 BepInEx ZIP의 모든 항목에 위 두 파일과 아래 항목을 추가합니다. 설치 EXE는 만들지 않습니다.
 
 ```text
 BepInEx/config/BepInEx.cfg       # [Logging] UnityLogListening = false, [Logging.Console] Enabled = false
@@ -116,7 +118,7 @@ install.ps1
 
 BepInEx는 `6.0.0-be.788+5b766a3` Unity IL2CPP Windows x64로 고정합니다. `.work/bepinex/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788+5b766a3.zip` 캐시를 사용하고 없을 때만 [고정 URL](https://builds.bepinex.dev/projects/bepinex_be/788/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788%2B5b766a3.zip)에서 받습니다. 캐시와 다운로드 모두 **34,336,405바이트**, SHA-256 `f4cc496bd098a0df4164b81e3737297707f13a47c2478dba2f60eefab784817a`를 검사합니다. 손상된 캐시는 자동으로 신뢰하거나 교체하지 않고 중단합니다. 설치 스크립트는 네트워크 없이 패키지 내용만 사용합니다.
 
-`update.json`은 UTF-8 BOM 없이 저장하고 `schemaVersion: 1`, `minimumBepInEx: "6.0.0-be.788"`을 사용합니다. URL은 해당 태그의 플러그인 ZIP을 가리킵니다. 플러그인은 최신 Release의 `/releases/latest/download/update.json`과 `.sig`를 받아 내장 공개 키로 검증한 뒤 ZIP과 각 파일을 검증합니다. 플러그인 버전과 번역 팩의 번호·게시 주기는 별개입니다.
+`update.json`은 UTF-8 BOM 없이 저장하고 `schemaVersion: 1`, `minimumBepInEx: "6.0.0-be.788"`을 사용합니다. URL은 해당 태그의 업데이트 ZIP을 가리킵니다. 플러그인은 최신 Release의 `/releases/latest/download/update.json`과 `.sig`를 받아 내장 공개 키로 검증한 뒤 ZIP과 각 파일을 검증합니다. 플러그인 버전과 번역 팩의 번호·게시 주기는 별개입니다.
 
 DLL·폰트 번들·`build-references.json`·`windows-plugin-build.json`은 로컬 확인용으로 함께 남지만 업로드하지 않습니다. ZIP의 timestamp를 고정해 같은 입력은 같은 ZIP digest를 만들지만 ECDSA 서명은 다시 생성할 때 달라질 수 있습니다. 이미 업로드를 시작했다면 패키지를 다시 만들지 마세요.
 

@@ -18,8 +18,9 @@ function Assert-AstralPluginAssembly([string]$Path, [string]$Name, [string]$Vers
     }
 }
 
+# [0] is the two-file package the plugin's updater downloads; [1] is the installer package players download.
 function Get-AstralReleaseAssetNames([string]$Tag) {
-    @("AstralPartyKoreanPlugin-$Tag.zip", "AstralPartyKoreanPlugin-$Tag-full.zip", 'update.json', 'update.json.sig', 'SHA256SUMS.txt')
+    @("update-$Tag.zip", "AstralPartyKoreanPlugin-$Tag.zip", 'update.json', 'update.json.sig', 'SHA256SUMS.txt')
 }
 
 function Get-AstralBepInExArchive {
@@ -139,7 +140,8 @@ function Assert-AstralUpdateSignature {
 function New-AstralUpdateManifest {
     param([string]$Version, [string]$Repository, [string]$OutputRoot, [Collections.IDictionary]$Files, [string]$SigningKeyPath = '', [string]$PublicKey = (Get-AstralUpdatePublicKey))
 
-    $name = "AstralPartyKoreanPlugin-v$Version.zip"
+    $names = @(Get-AstralReleaseAssetNames "v$Version")
+    $name = $names[0]
     $package = Join-Path $OutputRoot $name
     $manifest = [ordered]@{
         schemaVersion = 1
@@ -162,7 +164,7 @@ function New-AstralUpdateManifest {
     Assert-AstralUpdateSignature -Bytes $bytes -Signature $signature -PublicKey $PublicKey
     [IO.File]::WriteAllBytes((Join-Path $OutputRoot 'update.json'), $bytes)
     [IO.File]::WriteAllText((Join-Path $OutputRoot 'update.json.sig'), $signature, [Text.Encoding]::ASCII)
-    $checksums = foreach ($asset in @($name, "AstralPartyKoreanPlugin-v$Version-full.zip", 'update.json')) {
+    $checksums = foreach ($asset in @($names[0], $names[1], 'update.json')) {
         $hash = (Get-FileHash -LiteralPath (Join-Path $OutputRoot $asset) -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $asset"
     }

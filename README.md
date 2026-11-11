@@ -37,7 +37,7 @@
 BepInEx가 없거나 처음 설치한다면 이 방법을 쓰세요.
 
 1. 게임을 종료합니다.
-2. [최신 릴리스](https://github.com/maynut02/astral-party-korean-plugin/releases/latest)에서 `AstralPartyKoreanPlugin-v<버전>-full.zip`을 받아 아무 폴더에 압축을 풉니다.
+2. [최신 릴리스](https://github.com/maynut02/astral-party-korean-plugin/releases/latest)에서 `AstralPartyKoreanPlugin-v<버전>.zip`을 받아 아무 폴더에 압축을 풉니다.
 3. 압축을 푼 폴더의 `install.bat`을 실행합니다.
    - Steam 라이브러리에서 게임 폴더를 찾고, 글로벌판과 중국판이 모두 있으면 번호로 고릅니다. 찾지 못하면 게임 실행 파일이 있는 폴더 경로를 물어봅니다.
    - BepInEx가 없으면 함께 설치하고, 이미 있으면 그대로 둡니다. `BepInEx.cfg`에서는 아래 수동 설치 4단계의 두 값만 `false`로 맞추고 나머지 설정은 건드리지 않습니다.
@@ -45,7 +45,7 @@ BepInEx가 없거나 처음 설치한다면 이 방법을 쓰세요.
 4. 설치가 끝나면 게임을 바로 실행할지 묻습니다. Steam이 꺼져 있으면 Steam을 먼저 켜고 로그인이 끝난 뒤 게임을 실행합니다. 첫 실행은 BepInEx가 준비하는 동안 평소보다 오래 걸립니다.
 5. 게임 언어를 `English`(중국판은 `简体中文`)로 설정합니다.
 
-설치 파일은 인터넷에 접속하지 않고 압축 안의 파일만 복사합니다. 새로 받은 EXE가 아니라 내용을 열어 볼 수 있는 배치·PowerShell 스크립트입니다. 실행할 때 보안 경고가 뜨면 **실행**을 누르세요. 스크립트 실행이 막힌 환경이라면 아래 수동 설치를 쓰거나, `-full.zip`의 내용 중 `install.bat`, `install.ps1`을 뺀 나머지를 게임 폴더에 그대로 풀어도 됩니다. 다만 이 경우 기존 `BepInEx.cfg`를 덮어씁니다.
+설치 파일은 인터넷에 접속하지 않고 압축 안의 파일만 복사합니다. 새로 받은 EXE가 아니라 내용을 열어 볼 수 있는 배치·PowerShell 스크립트입니다. 실행할 때 보안 경고가 뜨면 **실행**을 누르세요. 스크립트 실행이 막힌 환경이라면 아래 수동 설치를 쓰거나, 이 ZIP의 내용 중 `install.bat`, `install.ps1`을 뺀 나머지를 게임 폴더에 그대로 풀어도 됩니다. 다만 이 경우 기존 `BepInEx.cfg`를 덮어씁니다.
 
 ### 수동 설치
 
@@ -66,7 +66,7 @@ BepInEx가 없거나 처음 설치한다면 이 방법을 쓰세요.
 
    파일이 이미 있으면 각 섹션 아래의 해당 값만 `false`로 바꾸세요. 로그 창이 필요하면 `Enabled`만 `true`로 되돌리면 됩니다. 로그는 창과 상관없이 `BepInEx/LogOutput.log`에 남습니다. 파일 이름이 `BepInEx.cfg.txt`가 되지 않도록 주의하세요.
 
-5. [최신 릴리스](https://github.com/maynut02/astral-party-korean-plugin/releases/latest)에서 `AstralPartyKoreanPlugin-v<버전>.zip`을 받아, 압축 안의 `BepInEx` 폴더를 게임 폴더에 복사해 기존 `BepInEx` 폴더와 합칩니다.
+5. [최신 릴리스](https://github.com/maynut02/astral-party-korean-plugin/releases/latest)에서 `update-v<버전>.zip`을 받아, 압축 안의 `BepInEx` 폴더를 게임 폴더에 복사해 기존 `BepInEx` 폴더와 합칩니다. 플러그인 DLL과 폰트만 들어 있는 파일로, 자동 업데이트가 내려받는 것과 같습니다.
 6. 게임 언어를 `English`(중국판은 `简体中文`)로 설정하고 게임을 실행합니다. BepInEx를 새로 설치했다면 첫 실행이 평소보다 오래 걸립니다.
 
 설치가 끝나면 다음과 같은 구조가 됩니다.
@@ -101,7 +101,9 @@ BepInEx가 없거나 처음 설치한다면 이 방법을 쓰세요.
 
 플러그인은 게임을 켤 때 새 버전을 확인합니다. 새 버전이 있으면 서명과 파일 해시를 확인한 뒤 자동으로 설치하고, 상태 창에 `설치 완료 · 다시 시작하면 적용됩니다`와 **지금 다시 시작** 버튼을 표시합니다. 버튼을 누르면 게임이 종료된 뒤 다시 켜지며 새 버전이 적용됩니다. 버튼 대신 게임을 직접 껐다 켜도 됩니다. 번역 팩만 바뀐 경우에는 따로 할 일이 없습니다.
 
-자동 업데이트를 끄려면 `BepInEx/config/astral-party.korean-patch.cfg`에서 `[Update]` 아래의 `AutoUpdate`를 `false`로 바꾸세요. 이 경우 상태 창에 새 버전이 표시되면 게임을 종료한 뒤 플러그인 ZIP을 덮어쓰거나 `install.bat`을 다시 실행합니다.
+자동 업데이트를 끄려면 `BepInEx/config/astral-party.korean-patch.cfg`에서 `[Update]` 아래의 `AutoUpdate`를 `false`로 바꾸세요. 이 경우 상태 창에 새 버전이 표시되면 게임을 종료한 뒤 `update-v<버전>.zip`을 덮어쓰거나 `install.bat`을 다시 실행합니다.
+
+3.0.0은 업데이트 패키지 이름이 달라 자동으로 업데이트되지 않습니다. 최신 `AstralPartyKoreanPlugin-v<버전>.zip`의 `install.bat`으로 한 번 다시 설치하세요.
 
 ### 2.x에서 업데이트하는 경우
 
@@ -144,7 +146,7 @@ BepInEx가 없거나 처음 설치한다면 이 방법을 쓰세요.
 | 오프라인: 저장된 번역 팩 사용 중 | 인터넷 연결을 확인하세요. 저장된 번역으로 계속 플레이할 수 있습니다. |
 | 번역 팩이 없어 원문을 표시합니다 | 인터넷에 연결한 뒤 게임을 다시 실행하세요. |
 | 번역 팩 형식이 변경되었습니다 | 최신 플러그인으로 업데이트하세요. |
-| 플러그인 업데이트 실패 · 수동 업데이트 | 게임을 종료하고 `install.bat`을 다시 실행하거나 플러그인 ZIP을 덮어쓰세요. |
+| 플러그인 업데이트 실패 · 수동 업데이트 | 게임을 종료하고 `install.bat`을 다시 실행하거나 `update-v<버전>.zip`을 덮어쓰세요. |
 | 다시 시작 실패 | 게임을 직접 종료한 뒤 다시 실행하세요. |
 | 이전 파일 정리 실패 | 표시된 파일을 직접 지우세요. ([2.x에서 업데이트하는 경우](#2x에서-업데이트하는-경우) 참고) |
 

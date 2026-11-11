@@ -107,7 +107,7 @@ dist/
 
 게시하지 않고 패키지만 만들려면 `.\scripts\package-release.ps1 -Version 3.0.0`을 사용합니다. 서명 키가 필요하고 항상 최신 소스를 빌드합니다. `-GameRoot`·`-RefsRoot`·`-WorkRoot`·`-DotNetPath`를 내부 빌드에 전달하고 `-OutputRoot`는 릴리스 폴더를 선택합니다. 내부 빌드 결과는 `dist/`, 기본 릴리스 결과는 `dist/release/vX.Y.Z/`에 보관합니다.
 
-플러그인 전용 ZIP, 고정 BepInEx·설치 스크립트를 포함한 전체 ZIP, `update.json`·서명·체크섬을 만듭니다. BepInEx 캐시는 `.work/bepinex/`를 사용하고 고정 URL에서 최초 한 번 다운로드한 뒤에도 크기·SHA-256을 검증합니다. 테스트는 작은 로컬 ZIP과 임시 키만 사용하며 다운로드하지 않습니다. 옵션·키 보관·재시도·파일 구성은 [릴리스 문서](releases.md)에 정리되어 있습니다.
+설치용 ZIP(고정 BepInEx·설치 스크립트 포함), DLL과 폰트만 담은 업데이트 ZIP, `update.json`·서명·체크섬을 만듭니다. BepInEx 캐시는 `.work/bepinex/`를 사용하고 고정 URL에서 최초 한 번 다운로드한 뒤에도 크기·SHA-256을 검증합니다. 테스트는 작은 로컬 ZIP과 임시 키만 사용하며 다운로드하지 않습니다. 옵션·키 보관·재시도·파일 구성은 [릴리스 문서](releases.md)에 정리되어 있습니다.
 
 ## 폰트 번들 수동 재생성
 
