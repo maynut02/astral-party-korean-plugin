@@ -4,16 +4,18 @@
 [![Downloads](https://img.shields.io/github/downloads/maynut02/astral-party-korean-plugin/total)](https://github.com/maynut02/astral-party-korean-plugin/releases)
 [![License](https://img.shields.io/github/license/maynut02/astral-party-korean-plugin)](LICENSE)
 
-Steam판 **아스트랄 파티(Astral Party)** 를 한국어로 플레이할 수 있게 해 주는 [BepInEx](https://github.com/BepInEx/BepInEx) 플러그인입니다.
+**Astral Party** Steam INT(글로벌) 버전을 한국어로 플레이할 수 있게 해 주는 [BepInEx](https://github.com/BepInEx/BepInEx) 플러그인입니다.
 
 게임 파일을 수정하지 않습니다. 게임이 텍스트와 폰트를 불러오는 순간에 번역과 한글 폰트를 적용하므로, 게임이 업데이트되어도 플러그인을 다시 설치할 필요가 없습니다.
 
-> 개발사와 관계없는 비공식 팬 번역입니다.
+> 개발사와 관계없는 비공식 번역입니다.
 
 ## 특징
 
 - **게임 업데이트 후에도 그대로 동작**: 게임 파일 대신 실행 중 불러온 텍스트를 번역합니다.
 - **번역 자동 갱신**: 게임을 켤 때 최신 번역 팩을 받아 둡니다. 플러그인을 업데이트하지 않아도 번역이 갱신됩니다.
+- **플러그인 자동 업데이트**: 새 버전이 나오면 서명을 확인한 뒤 자동으로 설치하고, 상태 창의 버튼 하나로 게임을 다시 시작해 적용합니다.
+- **간편 설치**: 설치 파일을 실행하면 게임 폴더를 찾아 BepInEx와 한글패치를 함께 설치합니다.
 - **한글 폰트 포함**: 게임 글꼴을 한글 글꼴로 바꿔 깨짐 없이 표시합니다.
 - **상태 창**: 적용된 번역 팩과 업데이트 여부를 게임 화면에서 확인할 수 있습니다.
 - **오프라인 실행**: 인터넷에 연결되지 않으면 마지막으로 받은 번역 팩을 사용합니다.
@@ -24,36 +26,48 @@ Steam판 **아스트랄 파티(Astral Party)** 를 한국어로 플레이할 수
 | --- | --- |
 | 운영체제 | Windows 64비트 |
 | 게임 | Steam판 아스트랄 파티 글로벌판 (중국판은 실험적 지원) |
-| 모드 로더 | [BepInEx 6 Bleeding Edge](https://builds.bepinex.dev/projects/bepinex_be) — **Unity IL2CPP / Windows x64** |
+| 모드 로더 | [BepInEx 6 Bleeding Edge](https://builds.bepinex.dev/projects/bepinex_be) be.788 이상 — **Unity IL2CPP / Windows x64** (간편 설치 파일에 포함) |
 | 게임 언어 | 글로벌판 `English`, 중국판 `简体中文` (이 언어 자리에 한국어가 들어갑니다) |
 | 인터넷 | 처음 실행할 때 번역 팩을 받기 위해 필요 |
 
 ## 설치
 
-### 1. BepInEx 설치
+### 간편 설치 (권장)
 
-이미 BepInEx 6 IL2CPP를 쓰고 있다면 건너뛰세요.
+BepInEx가 없거나 처음 설치한다면 이 방법을 쓰세요.
+
+1. 게임을 종료합니다.
+2. [최신 릴리스](https://github.com/maynut02/astral-party-korean-plugin/releases/latest)에서 `AstralPartyKoreanPlugin-v<버전>-full.zip`을 받아 아무 폴더에 압축을 풉니다.
+3. 압축을 푼 폴더의 `install.bat`을 실행합니다.
+   - Steam 라이브러리에서 게임 폴더를 찾고, 글로벌판과 중국판이 모두 있으면 번호로 고릅니다. 찾지 못하면 게임 실행 파일이 있는 폴더 경로를 물어봅니다.
+   - BepInEx가 없으면 함께 설치하고, 이미 있으면 그대로 둡니다. `BepInEx.cfg`에서는 아래 수동 설치 4단계의 두 값만 `false`로 맞추고 나머지 설정은 건드리지 않습니다.
+   - 2.x 버전의 파일이 남아 있으면 지웁니다.
+4. 설치가 끝나면 게임을 바로 실행할지 묻습니다. Steam이 꺼져 있으면 Steam을 먼저 켜고 로그인이 끝난 뒤 게임을 실행합니다. 첫 실행은 BepInEx가 준비하는 동안 평소보다 오래 걸립니다.
+5. 게임 언어를 `English`(중국판은 `简体中文`)로 설정합니다.
+
+설치 파일은 인터넷에 접속하지 않고 압축 안의 파일만 복사합니다. 새로 받은 EXE가 아니라 내용을 열어 볼 수 있는 배치·PowerShell 스크립트입니다. 실행할 때 보안 경고가 뜨면 **실행**을 누르세요. 스크립트 실행이 막힌 환경이라면 아래 수동 설치를 쓰거나, `-full.zip`의 내용 중 `install.bat`, `install.ps1`을 뺀 나머지를 게임 폴더에 그대로 풀어도 됩니다. 다만 이 경우 기존 `BepInEx.cfg`를 덮어씁니다.
+
+### 수동 설치
+
+이미 BepInEx 6 IL2CPP를 쓰고 있다면 플러그인만 설치하면 됩니다.
 
 1. Steam 라이브러리에서 아스트랄 파티를 우클릭 → **관리 → 로컬 파일 보기**를 누릅니다.
 2. 게임 실행 파일이 있는 폴더로 들어갑니다. 글로벌판은 `8vJXnINT` (`AstralParty_INT.exe`), 중국판은 `8vJXn6CN` (`AstralParty_CN.exe`)입니다.
-3. [BepInEx Bleeding Edge](https://builds.bepinex.dev/projects/bepinex_be)에서 **BepInEx Unity (IL2CPP) for Windows (x64) games**를 받아, 압축 안의 내용을 이 폴더에 그대로 풉니다.
-4. **게임을 실행하기 전에** `BepInEx/config/BepInEx.cfg`를 만들거나 열어 아래 항목을 설정합니다. 아스트랄 파티에서 BepInEx가 정상적으로 초기화되도록 하는 설정입니다.
+3. BepInEx가 없다면 [BepInEx Bleeding Edge](https://builds.bepinex.dev/projects/bepinex_be)에서 **BepInEx Unity (IL2CPP) for Windows (x64) games**를 받아 압축 안의 내용을 이 폴더에 그대로 풉니다.
+4. **게임을 실행하기 전에** `BepInEx/config/BepInEx.cfg`를 만들거나 열어 아래 항목을 설정합니다. `UnityLogListening`은 아스트랄 파티에서 BepInEx가 정상적으로 초기화되도록 하는 설정이고, `[Logging.Console]`의 `Enabled`는 게임과 함께 뜨는 BepInEx 로그 창을 끄는 설정입니다.
 
    ```ini
    [Logging]
    UnityLogListening = false
+
+   [Logging.Console]
+   Enabled = false
    ```
 
-   파일이 이미 있으면 `[Logging]` 아래의 `UnityLogListening` 값만 `false`로 바꾸세요. 파일 이름이 `BepInEx.cfg.txt`가 되지 않도록 주의하세요.
+   파일이 이미 있으면 각 섹션 아래의 해당 값만 `false`로 바꾸세요. 로그 창이 필요하면 `Enabled`만 `true`로 되돌리면 됩니다. 로그는 창과 상관없이 `BepInEx/LogOutput.log`에 남습니다. 파일 이름이 `BepInEx.cfg.txt`가 되지 않도록 주의하세요.
 
-5. 게임을 한 번 실행했다가 종료합니다. BepInEx가 처음 준비하는 동안 실행이 평소보다 오래 걸립니다.
-
-### 2. 한글패치 설치
-
-1. 게임을 종료합니다.
-2. [최신 릴리스](https://github.com/maynut02/astral-party-korean-plugin/releases/latest)에서 `AstralPartyKoreanPlugin-v<버전>.zip`을 받습니다.
-3. 압축 안의 `BepInEx` 폴더를 게임 폴더에 복사해 기존 `BepInEx` 폴더와 합칩니다.
-4. 게임 언어를 `English`(중국판은 `简体中文`)로 설정하고 게임을 실행합니다.
+5. [최신 릴리스](https://github.com/maynut02/astral-party-korean-plugin/releases/latest)에서 `AstralPartyKoreanPlugin-v<버전>.zip`을 받아, 압축 안의 `BepInEx` 폴더를 게임 폴더에 복사해 기존 `BepInEx` 폴더와 합칩니다.
+6. 게임 언어를 `English`(중국판은 `简体中文`)로 설정하고 게임을 실행합니다. BepInEx를 새로 설치했다면 첫 실행이 평소보다 오래 걸립니다.
 
 설치가 끝나면 다음과 같은 구조가 됩니다.
 
@@ -85,11 +99,13 @@ Steam판 **아스트랄 파티(Astral Party)** 를 한국어로 플레이할 수
 
 ## 업데이트
 
-상태 창의 **최신** 버전이 설치된 버전보다 높으면 플러그인을 업데이트하세요. 게임을 종료한 뒤 새 ZIP을 같은 방법으로 덮어쓰면 됩니다. 번역 팩만 바뀐 경우에는 따로 할 일이 없습니다.
+플러그인은 게임을 켤 때 새 버전을 확인합니다. 새 버전이 있으면 서명과 파일 해시를 확인한 뒤 자동으로 설치하고, 상태 창에 `설치 완료 · 다시 시작하면 적용됩니다`와 **지금 다시 시작** 버튼을 표시합니다. 버튼을 누르면 게임이 종료된 뒤 다시 켜지며 새 버전이 적용됩니다. 버튼 대신 게임을 직접 껐다 켜도 됩니다. 번역 팩만 바뀐 경우에는 따로 할 일이 없습니다.
+
+자동 업데이트를 끄려면 `BepInEx/config/astral-party.korean-patch.cfg`에서 `[Update]` 아래의 `AutoUpdate`를 `false`로 바꾸세요. 이 경우 상태 창에 새 버전이 표시되면 게임을 종료한 뒤 플러그인 ZIP을 덮어쓰거나 `install.bat`을 다시 실행합니다.
 
 ### 2.x에서 업데이트하는 경우
 
-3.0부터 설치 방식이 바뀌었습니다. 새 버전을 설치하기 전에 아래 파일과 폴더를 지워 주세요.
+3.0부터 설치 방식이 바뀌었습니다. 간편 설치(`install.bat`)는 아래 파일과 폴더를 자동으로 지웁니다. 수동으로 설치한다면 새 버전을 설치하기 전에 직접 지워 주세요.
 
 - `BepInEx/patchers/AstralPartyKoreanPlugin.dataUnity3dRedirect.dll`
 - `BepInEx/plugins/AstralPartyKoreanPatch/`
@@ -128,6 +144,8 @@ Steam판 **아스트랄 파티(Astral Party)** 를 한국어로 플레이할 수
 | 오프라인: 저장된 번역 팩 사용 중 | 인터넷 연결을 확인하세요. 저장된 번역으로 계속 플레이할 수 있습니다. |
 | 번역 팩이 없어 원문을 표시합니다 | 인터넷에 연결한 뒤 게임을 다시 실행하세요. |
 | 번역 팩 형식이 변경되었습니다 | 최신 플러그인으로 업데이트하세요. |
+| 플러그인 업데이트 실패 · 수동 업데이트 | 게임을 종료하고 `install.bat`을 다시 실행하거나 플러그인 ZIP을 덮어쓰세요. |
+| 다시 시작 실패 | 게임을 직접 종료한 뒤 다시 실행하세요. |
 | 이전 파일 정리 실패 | 표시된 파일을 직접 지우세요. ([2.x에서 업데이트하는 경우](#2x에서-업데이트하는-경우) 참고) |
 
 </details>
