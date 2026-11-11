@@ -7,6 +7,9 @@ $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not $WorkRoot) { $WorkRoot = Join-Path $repoRoot '.work' }
 . (Join-Path $PSScriptRoot 'dotnet-sdk.ps1')
 $dotnet = Get-AstralDotnet -Root $repoRoot -WorkRoot $WorkRoot -DotNetPath $DotNetPath
+$global:LASTEXITCODE = 0
+& (Join-Path $repoRoot 'tests/scripts/InstallerTests.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Offline installer regression checks failed.' }
 $python = Get-Command $PythonPath -CommandType Application -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Source
 $savedDotnet = $env:ASTRAL_TEST_DOTNET
 $env:ASTRAL_TEST_DOTNET = $dotnet
