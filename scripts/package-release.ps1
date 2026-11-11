@@ -37,6 +37,7 @@ $key.Dispose()
 foreach ($source in @('installer/install.bat', 'installer/install.ps1', 'assets/third-party/LICENSE-BepInEx.txt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $pluginRoot $source) -PathType Leaf)) { throw "Missing full-package source: $source" }
 }
+$timestamp = Get-AstralSourceTimestamp $pluginRoot
 $bepInEx = Get-AstralBepInExArchive -WorkRoot $work
 $buildArguments = @{ Version = $Version; RefsRoot = $RefsRoot; WorkRoot = $work; OutputRoot = $buildRoot; DotNetPath = $DotNetPath }
 if ($PSBoundParameters.ContainsKey('GameRoot')) { $buildArguments.GameRoot = $GameRoot }
@@ -51,14 +52,14 @@ $references = Get-Content -LiteralPath (Join-Path $buildRoot 'build-references.j
 $stage = Join-Path $work ('package-release/' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($stage) | Out-Null
 try {
-    $package = New-AstralZipPackage -Files $files -OutputRoot $stage -ZipName $names[0]
+    $package = New-AstralZipPackage -Files $files -OutputRoot $stage -ZipName $names[0] -Timestamp $timestamp
     $fullFiles = [ordered]@{}
     foreach ($file in $files.GetEnumerator()) { $fullFiles[$file.Key] = $file.Value }
     $fullFiles['BepInEx/config/BepInEx.cfg'] = [Text.Encoding]::UTF8.GetBytes("[Logging]`r`nUnityLogListening = false`r`n[Logging.Console]`r`nEnabled = false`r`n")
     $fullFiles['LICENSE-BepInEx.txt'] = Join-Path $pluginRoot 'assets/third-party/LICENSE-BepInEx.txt'
     $fullFiles['install.bat'] = Join-Path $pluginRoot 'installer/install.bat'
     $fullFiles['install.ps1'] = Join-Path $pluginRoot 'installer/install.ps1'
-    $fullPackage = New-AstralZipPackage -Files $fullFiles -OutputRoot $stage -ZipName $names[1] -BaseArchive $bepInEx
+    $fullPackage = New-AstralZipPackage -Files $fullFiles -OutputRoot $stage -ZipName $names[1] -Timestamp $timestamp -BaseArchive $bepInEx
     New-AstralUpdateManifest -Version $Version -Repository $Repository -OutputRoot $stage -Files $files -SigningKeyPath $SigningKeyPath
     Assert-AstralReleaseAssets -Tag $Tag -Repository $Repository -Root $stage | Out-Null
     foreach ($path in $files.Values) { Copy-Item -LiteralPath $path -Destination (Join-Path $stage ([IO.Path]::GetFileName($path))) }

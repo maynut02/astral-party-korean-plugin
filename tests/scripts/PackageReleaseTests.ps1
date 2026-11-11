@@ -53,7 +53,7 @@ try {
         'winhttp.dll' = [Text.Encoding]::ASCII.GetBytes('doorstop fixture')
         'changelog.txt' = [Text.Encoding]::ASCII.GetBytes('fixture changelog')
     }
-    New-AstralZipPackage -Files $runtimeFiles -OutputRoot ([IO.Path]::GetDirectoryName($runtime)) -ZipName ([IO.Path]::GetFileName($runtime)) | Out-Null
+    New-AstralZipPackage -Files $runtimeFiles -OutputRoot ([IO.Path]::GetDirectoryName($runtime)) -ZipName ([IO.Path]::GetFileName($runtime)) -Timestamp ([DateTimeOffset]::new(2001, 2, 3, 4, 5, 6, [TimeSpan]::Zero)) | Out-Null
     $runtimeHash = (Get-FileHash -LiteralPath $runtime).Hash.ToLowerInvariant()
     $runtimeSize = (Get-Item -LiteralPath $runtime).Length
     # Network access is forbidden even if a regression tries to fetch the fixture.
@@ -89,6 +89,16 @@ foreach ($name in @('AstralPartyKoreanPlugin.dll', 'astralkorean_fonts.bundle'))
 [IO.File]::WriteAllText((Join-Path $OutputRoot 'build-references.json'), '{"references":[]}', [Text.UTF8Encoding]::new($false))
 '@
     [IO.File]::WriteAllText((Join-Path $root 'scripts/build.ps1'), $buildStub, $utf8)
+    # Packaging stamps entries with the fixture's own HEAD commit, not the enclosing checkout's.
+    $git = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Source
+    $savedDates = $env:GIT_AUTHOR_DATE, $env:GIT_COMMITTER_DATE
+    try {
+        $env:GIT_AUTHOR_DATE = $env:GIT_COMMITTER_DATE = '2024-05-06T07:08:10Z'
+        foreach ($command in @(@('init', '--quiet', '--initial-branch=main'), @('-c', 'user.name=Package Tests', '-c', 'user.email=package-tests@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '--quiet', '--allow-empty', '-m', 'Fixture source'))) {
+            $gitOutput = @(& $git -C $root @command 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "Package fixture Git failed: $($gitOutput -join "`n")" }
+        }
+    } finally { $env:GIT_AUTHOR_DATE, $env:GIT_COMMITTER_DATE = $savedDates }
     $package = Join-Path $root 'scripts/package-release.ps1'
     $arguments = @{ Version = $version; SigningKeyPath = $keyPath; Repository = 'owner/repo' }
     $assets = Join-Path $root "dist/release/$tag"
@@ -120,6 +130,15 @@ foreach ($name in @('AstralPartyKoreanPlugin.dll', 'astralkorean_fonts.bundle'))
             try { Assert-True ($reader.ReadToEnd() -ceq "[Logging]`r`nUnityLogListening = false`r`n[Logging.Console]`r`nEnabled = false`r`n") 'Fresh config differs.' } finally { $reader.Dispose() }
             foreach ($name in @('LICENSE-BepInEx.txt', 'install.bat', 'install.ps1')) { Assert-True ($archive.GetEntry($name).Length -gt 0) "Missing full-package input: $name" }
         } finally { $archive.Dispose() }
+    }
+    Test-Case 'zip-entries-carry-the-source-commit-time-in-kst' {
+        foreach ($name in @($names[0], $names[1])) {
+            $archive = [IO.Compression.ZipFile]::OpenRead((Join-Path $assets $name))
+            try {
+                $times = @($archive.Entries | ForEach-Object { $_.LastWriteTime.DateTime.ToString('yyyy-MM-dd HH:mm:ss') } | Sort-Object -Unique)
+                Assert-True ($times.Count -eq 1 -and $times[0] -ceq '2024-05-06 16:08:10') "ZIP entry times differ from the source commit: $name ($($times -join ', '))"
+            } finally { $archive.Dispose() }
+        }
     }
     Test-Case 'repackaging-rebuilds-but-zip-digests-are-reproducible' {
         $before = @($names[0], $names[1]) | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $assets $_)).Hash }
@@ -166,7 +185,7 @@ foreach ($name in @('AstralPartyKoreanPlugin.dll', 'astralkorean_fonts.bundle'))
     }
     Test-Case 'failed-zip-replacement-removes-temporary-file-and-preserves-old-zip' {
         $before = Get-Fingerprint $assets
-        Assert-Rejected { New-AstralZipPackage -Files ([ordered]@{ 'missing.bundle' = (Join-Path $testRoot 'missing.bundle') }) -OutputRoot $assets -ZipName $names[0] }
+        Assert-Rejected { New-AstralZipPackage -Files ([ordered]@{ 'missing.bundle' = (Join-Path $testRoot 'missing.bundle') }) -OutputRoot $assets -ZipName $names[0] -Timestamp ([DateTimeOffset]::UtcNow) }
         Assert-True ((Get-Fingerprint $assets) -ceq $before) 'Failed ZIP replacement leaked or changed files.'
     }
     Write-Output "Package tests passed: $passed cases. Only local fixture archives and throwaway signing keys were used."

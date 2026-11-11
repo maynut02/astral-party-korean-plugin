@@ -51,6 +51,14 @@ function Invoke-AstralGit {
     return ($output -join "`n")
 }
 
+# Every ZIP entry carries the release commit's time: one commit always yields the same archive digest,
+# and installed files show when the release was made instead of a placeholder date.
+function Get-AstralSourceTimestamp([string]$Root) {
+    $seconds = [long](Invoke-AstralGit $Root @('log', '-1', '--format=%ct', 'HEAD'))
+    # ZIP stores wall-clock time without a zone and extractors read it as local time; players are on KST.
+    return [DateTimeOffset]::FromUnixTimeSeconds($seconds).ToOffset([TimeSpan]::FromHours(9))
+}
+
 function Get-AstralVersionPlan {
     param([Parameter(Mandatory)][string]$Root, [ValidateSet('auto', 'patch', 'minor', 'major')][string]$Bump = 'auto', [string]$Version = '', [switch]$Development)
 

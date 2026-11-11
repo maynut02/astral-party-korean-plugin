@@ -120,7 +120,7 @@ BepInEx는 `6.0.0-be.788+5b766a3` Unity IL2CPP Windows x64로 고정합니다. `
 
 `update.json`은 UTF-8 BOM 없이 저장하고 `schemaVersion: 1`, `minimumBepInEx: "6.0.0-be.788"`을 사용합니다. URL은 해당 태그의 업데이트 ZIP을 가리킵니다. 플러그인은 최신 Release의 `/releases/latest/download/update.json`과 `.sig`를 받아 내장 공개 키로 검증한 뒤 ZIP과 각 파일을 검증합니다. 플러그인 버전과 번역 팩의 번호·게시 주기는 별개입니다.
 
-DLL·폰트 번들·`build-references.json`·`windows-plugin-build.json`은 로컬 확인용으로 함께 남지만 업로드하지 않습니다. ZIP의 timestamp를 고정해 같은 입력은 같은 ZIP digest를 만들지만 ECDSA 서명은 다시 생성할 때 달라질 수 있습니다. 이미 업로드를 시작했다면 패키지를 다시 만들지 마세요.
+DLL·폰트 번들·`build-references.json`·`windows-plugin-build.json`은 로컬 확인용으로 함께 남지만 업로드하지 않습니다. ZIP 안 모든 항목의 수정 시각은 릴리스 커밋 시각(KST)으로 맞춥니다. 같은 커밋·같은 입력은 같은 ZIP digest를 만들고, 설치된 파일의 날짜는 릴리스 시점을 나타냅니다. ECDSA 서명은 다시 생성할 때 달라질 수 있으므로 이미 업로드를 시작했다면 패키지를 다시 만들지 마세요.
 
 ## 실패 후 안전하게 다시 업로드
 

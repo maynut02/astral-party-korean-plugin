@@ -50,7 +50,7 @@ function Get-AstralBepInExArchive {
 }
 
 function New-AstralZipPackage {
-    param([Collections.IDictionary]$Files, [string]$OutputRoot, [string]$ZipName, [string]$BaseArchive = '')
+    param([Collections.IDictionary]$Files, [string]$OutputRoot, [string]$ZipName, [Parameter(Mandatory)][DateTimeOffset]$Timestamp, [string]$BaseArchive = '')
 
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [IO.Directory]::CreateDirectory($OutputRoot) | Out-Null
@@ -60,14 +60,13 @@ function New-AstralZipPackage {
         $archive = [IO.Compression.ZipFile]::Open($temporary, [IO.Compression.ZipArchiveMode]::Create)
         try {
             $names = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-            $timestamp = [DateTimeOffset]::new(2000, 1, 1, 0, 0, 0, [TimeSpan]::Zero)
             if ($BaseArchive) {
                 $source = [IO.Compression.ZipFile]::OpenRead($BaseArchive)
                 try {
                     foreach ($entry in $source.Entries) {
                         if (-not $names.Add($entry.FullName)) { throw 'Duplicate BepInEx ZIP entry.' }
                         $copy = $archive.CreateEntry($entry.FullName, [IO.Compression.CompressionLevel]::Optimal)
-                        $copy.LastWriteTime = $timestamp
+                        $copy.LastWriteTime = $Timestamp
                         $inputStream = $entry.Open()
                         $outputStream = $copy.Open()
                         try { $inputStream.CopyTo($outputStream) } finally { $outputStream.Dispose(); $inputStream.Dispose() }
@@ -77,7 +76,7 @@ function New-AstralZipPackage {
             foreach ($file in $Files.GetEnumerator()) {
                 if (-not $names.Add($file.Key)) { throw "Package path collides with BepInEx: $($file.Key)" }
                 $entry = $archive.CreateEntry($file.Key, [IO.Compression.CompressionLevel]::Optimal)
-                $entry.LastWriteTime = $timestamp
+                $entry.LastWriteTime = $Timestamp
                 $stream = $entry.Open()
                 try {
                     if ($file.Value -is [byte[]]) { $stream.Write($file.Value, 0, $file.Value.Length) }

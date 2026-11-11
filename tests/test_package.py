@@ -40,13 +40,14 @@ $files = [ordered]@{
     'BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll' = (Join-Path $root 'AstralPartyKoreanPlugin.dll')
     'BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle' = (Join-Path $root 'astralkorean_fonts.bundle')
 }
-$runtime = New-AstralZipPackage -Files ([ordered]@{ 'winhttp.dll' = [Text.Encoding]::ASCII.GetBytes('pinned runtime fixture') }) -OutputRoot $root -ZipName 'runtime.zip'
-New-AstralZipPackage -Files $files -OutputRoot $root -ZipName 'update-v4.5.6.zip' | Out-Null
+$timestamp = [DateTimeOffset]::new(2024, 5, 6, 16, 8, 10, [TimeSpan]::FromHours(9))
+$runtime = New-AstralZipPackage -Files ([ordered]@{ 'winhttp.dll' = [Text.Encoding]::ASCII.GetBytes('pinned runtime fixture') }) -OutputRoot $root -ZipName 'runtime.zip' -Timestamp $timestamp
+New-AstralZipPackage -Files $files -OutputRoot $root -ZipName 'update-v4.5.6.zip' -Timestamp $timestamp | Out-Null
 $full = [ordered]@{}
 foreach ($file in $files.GetEnumerator()) { $full[$file.Key] = $file.Value }
 $full['BepInEx/config/BepInEx.cfg'] = [Text.Encoding]::UTF8.GetBytes("[Logging]`r`nUnityLogListening = false`r`n[Logging.Console]`r`nEnabled = false`r`n")
 foreach ($name in @('install.ps1', 'install.bat', 'LICENSE-BepInEx.txt')) { $full[$name] = Join-Path $root $name }
-New-AstralZipPackage -Files $full -OutputRoot $root -ZipName 'AstralPartyKoreanPlugin-v4.5.6.zip' -BaseArchive $runtime.Path | Out-Null
+New-AstralZipPackage -Files $full -OutputRoot $root -ZipName 'AstralPartyKoreanPlugin-v4.5.6.zip' -Timestamp $timestamp -BaseArchive $runtime.Path | Out-Null
 $key = [Security.Cryptography.ECDsa]::Create([Security.Cryptography.ECCurve+NamedCurves]::nistP256)
 try {
     $publicKey = [Convert]::ToBase64String($key.ExportSubjectPublicKeyInfo())
