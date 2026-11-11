@@ -96,6 +96,7 @@ internal sealed class SemanticVersion : IComparable<SemanticVersion>
     private readonly string[] core;
     private readonly string[] pre;
     internal string Text { get; }
+    internal bool IsPrerelease => pre.Length != 0;
     private SemanticVersion(string text, string[] core, string[] pre) { Text = text; this.core = core; this.pre = pre; }
 
     internal static SemanticVersion Parse(string value)

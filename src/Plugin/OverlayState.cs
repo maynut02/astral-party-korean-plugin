@@ -5,11 +5,11 @@ namespace AstralParty.KoreanPatch;
 internal enum StatusSeverity { Checking, Success, Warning, Error }
 internal sealed record OverlaySnapshot(string GameVersion, string GameRevision,
     string PackVersion, string PackRevision, string PackNumber, string InstalledVersion,
-    string LatestVersion, string Status, StatusSeverity Severity);
+    string LatestVersion, string Status, StatusSeverity Severity, bool RestartRequired);
 
 internal static class OverlayState
 {
-    internal static OverlaySnapshot Create(string gameVersion, string gameRevision, string installed, string latest,
+    internal static OverlaySnapshot Create(string gameVersion, string gameRevision, string installed, PluginUpdateState update,
         bool supported, string? cleanupFailure, PackState state)
     {
         var pack = state.Frozen ? state.Active : state.Candidate;
@@ -19,6 +19,8 @@ internal static class OverlayState
         { status = "이전 파일 정리 실패: " + cleanupFailure + " 파일을 삭제해 주세요"; severity = StatusSeverity.Error; }
         else if (!supported)
         { status = "지원하지 않는 게임입니다 (INT/CN 전용)"; severity = StatusSeverity.Error; }
+        else if (update.Message != null)
+        { status = update.Message; severity = update.Severity; }
         else if (state.UpdateRequired)
         { status = "번역 팩 형식이 변경되었습니다. 플러그인을 업데이트해 주세요"; severity = StatusSeverity.Warning; }
         else if (state.Frozen && state.Candidate != null && state.Candidate.Number > (state.Active?.Number ?? 0))
@@ -33,6 +35,6 @@ internal static class OverlayState
         { status = state.Frozen ? "최신 번역 팩 #" + pack.Number + " 적용 완료" : "최신 번역 팩 #" + pack.Number + " 적용 준비 완료"; severity = StatusSeverity.Success; }
         return new OverlaySnapshot(gameVersion, gameRevision, pack?.Version ?? "-", pack?.Revision ?? "-",
             pack == null ? "-" : "#" + pack.Number.ToString(CultureInfo.InvariantCulture),
-            "v" + installed, latest, status, severity);
+            "v" + installed, update.Latest, status, severity, update.RestartRequired);
     }
 }

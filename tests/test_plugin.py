@@ -1,10 +1,14 @@
 """Run Unity-free production plugin logic in a managed .NET harness; no game or network."""
 
+import base64
+import hashlib
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
+import zipfile
 from html import escape
 from pathlib import Path
 
@@ -17,6 +21,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using AstralParty.KoreanPatch;
@@ -30,6 +36,10 @@ internal static class Program
     [DllImport("kernel32")]
     private static extern bool FreeLibrary(IntPtr module);
     private static bool Flag(JsonElement root, string name) => root.TryGetProperty(name, out var value) && value.GetBoolean();
+    private static byte[] Bytes(JsonElement root, string name) => Convert.FromBase64String(Text(root, name));
+    private static PluginUpdateState UpdateState(JsonElement root) => new(Text(root, "latest"),
+        root.TryGetProperty("updateMessage", out var message) ? message.GetString() : null,
+        Flag(root, "updateWarning") ? StatusSeverity.Warning : StatusSeverity.Success, Flag(root, "restartRequired"));
     public static async Task Main(string[] args)
     {
         using var input = JsonDocument.Parse(File.ReadAllBytes(args[0]));
@@ -46,7 +56,7 @@ internal static class Program
                 break;
             case "overlay":
                 result = OverlayState.Create(Text(request, "gameVersion"), Text(request, "gameRevision"),
-                    Text(request, "installed"), Text(request, "latest"), !Flag(request, "unsupported"),
+                    Text(request, "installed"), UpdateState(request), !Flag(request, "unsupported"),
                     request.TryGetProperty("cleanupFailure", out var cleanup) ? cleanup.GetString() : null,
                     new PackState(null, null, Flag(request, "frozen"), Flag(request, "checking"),
                         Flag(request, "offline"), Flag(request, "updateRequired")));
@@ -108,11 +118,98 @@ internal static class Program
                 await client.RefreshTask;
                 var active = client.Freeze();
                 var state = client.Snapshot();
-                var overlay = OverlayState.Create("3.3.0", "026", "3.0.0", "v3.0.0", !Flag(request, "unsupported"), null, state);
+                var overlay = OverlayState.Create("3.3.0", "026", "3.0.0",
+                    new PluginUpdateState("v3.0.0", null, StatusSeverity.Success, false), !Flag(request, "unsupported"), null, state);
                 result = new { initial, candidate = state.Candidate?.Number, active = active?.Number,
                     state.Checking, state.Offline, state.UpdateRequired, state.Frozen,
                     first = first?.Number, activeText = active != null && active.Lang.TryGetValue("hello", out var text) ? text : null,
                     status = overlay.Status, severity = overlay.Severity.ToString(), overlay, logs, requests };
+                break;
+            case "plugin-update":
+            {
+                using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+                var publicKey = Convert.ToBase64String(key.ExportSubjectPublicKeyInfo());
+                var manifest = Bytes(request, "manifest");
+                var signature = key.SignData(manifest, HashAlgorithmName.SHA256,
+                    Flag(request, "derSignature") ? DSASignatureFormat.Rfc3279DerSequence : DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+                if (Flag(request, "invalidSignature")) signature[0] ^= 1;
+                if (Flag(request, "untrustedKey"))
+                {
+                    using var wrongKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+                    publicKey = Convert.ToBase64String(wrongKey.ExportSubjectPublicKeyInfo());
+                }
+                var updateLogs = new List<string>();
+                var updateRequests = new List<object>();
+                var pluginDirectory = Text(request, "directory");
+                var lockedImage = request.TryGetProperty("lockedDll", out var imagePath)
+                    ? LoadLibraryExW(imagePath.GetString()!, IntPtr.Zero, 0x20) : IntPtr.Zero;
+                if (imagePath.ValueKind == JsonValueKind.String && lockedImage == IntPtr.Zero)
+                    throw new IOException("Could not map test DLL: " + Marshal.GetLastWin32Error());
+                FileStream? lockedBundle = Flag(request, "lockBundle")
+                    ? new FileStream(Path.Combine(pluginDirectory, UpdateManifest.BundleName), FileMode.Open, FileAccess.Read, FileShare.Read) : null;
+                FileStream? lockedDestination = Flag(request, "lockDll")
+                    ? new FileStream(Path.Combine(pluginDirectory, UpdateManifest.DllName), FileMode.Open, FileAccess.Read, FileShare.Read) : null;
+                try
+                {
+                    Task<byte[]> DownloadUpdate(Uri uri, int limit, bool noCache)
+                    {
+                        updateRequests.Add(new { url = uri.AbsoluteUri, limit, noCache });
+                        if (Flag(request, "offline")) throw new IOException("test offline");
+                        var response = uri == PluginUpdateClient.ManifestUrl
+                            ? (request.TryGetProperty("servedManifest", out _) ? Bytes(request, "servedManifest") : manifest)
+                            : uri == PluginUpdateClient.SignatureUrl
+                                ? Encoding.ASCII.GetBytes(Convert.ToBase64String(signature))
+                                : Bytes(request, "package");
+                        // The production transport enforces this too; this fake deliberately lets the
+                        // validation layer receive malicious over-limit and wrong-size responses.
+                        return Task.FromResult(response);
+                    }
+                    var updater = new PluginUpdateClient(Text(request, "installed"), Text(request, "bepinexVersion"),
+                        !Flag(request, "autoOff"), pluginDirectory, DownloadUpdate, updateLogs.Add,
+                        publicKey: publicKey);
+                    await updater.RefreshTask;
+                    var updated = updater.Snapshot();
+                    var staged = File.Exists(Path.Combine(pluginDirectory, UpdateManifest.BundleName) + ".new");
+                    lockedBundle?.Dispose();
+                    lockedBundle = null;
+                    lockedDestination?.Dispose();
+                    lockedDestination = null;
+                    if (lockedImage != IntPtr.Zero) { FreeLibrary(lockedImage); lockedImage = IntPtr.Zero; }
+                    if (Flag(request, "tamperStaged") && staged)
+                        File.WriteAllBytes(Path.Combine(pluginDirectory, UpdateManifest.BundleName) + ".new", Encoding.UTF8.GetBytes("tampered"));
+                    var startupFailure = Flag(request, "nextStartup")
+                        ? new UpdateInstaller(pluginDirectory, updateLogs.Add, publicKey)
+                            .PrepareStartup(request.TryGetProperty("startupInstalled", out var startupInstalled)
+                                ? startupInstalled.GetString()! : "3.1.0") : null;
+                    result = new { state = updated, staged, startupFailure, logs = updateLogs, requests = updateRequests };
+                }
+                finally
+                {
+                    lockedBundle?.Dispose();
+                    lockedDestination?.Dispose();
+                    if (lockedImage != IntPtr.Zero) FreeLibrary(lockedImage);
+                }
+                break;
+            }
+            case "update-startup":
+                var startupLogs = new List<string>();
+                var startupResult = new UpdateInstaller(Text(request, "directory"), startupLogs.Add)
+                    .PrepareStartup(Flag(request, "devBuild") ? "3.1.0-dev.1" : "3.1.0");
+                result = new { failure = startupResult, logs = startupLogs };
+                break;
+            case "restart-command":
+                // Simulate the variables Doorstop leaves in the injected game process.
+                Environment.SetEnvironmentVariable("DOORSTOP_DISABLE", "TRUE");
+                Environment.SetEnvironmentVariable("DOORSTOP_INITIALIZED", "TRUE");
+                Environment.SetEnvironmentVariable("SteamAppId", "2622000");
+                var restart = GameRestart.CreateStartInfo(Text(request, "executable"), request.GetProperty("pid").GetInt32());
+                var doorstop = new List<string>();
+                foreach (var key in restart.Environment.Keys)
+                    if (key.StartsWith("DOORSTOP_", StringComparison.OrdinalIgnoreCase)) doorstop.Add(key);
+                result = new { restart.FileName, restart.Arguments, restart.UseShellExecute, restart.CreateNoWindow,
+                    restart.WorkingDirectory, executable = restart.Environment["ASTRAL_RESTART_EXECUTABLE"],
+                    directory = restart.Environment["ASTRAL_RESTART_DIRECTORY"], doorstop,
+                    steamAppId = restart.Environment["SteamAppId"] };
                 break;
             default: throw new InvalidOperationException("Unknown test mode");
         }
@@ -142,7 +239,8 @@ def plugin_logic(tmp_path_factory):
         pytest.skip(".NET 6 SDK is required for plugin behavior tests")
     (build_root / "global.json").write_text(json.dumps({"sdk": {"version": sdks[-1], "rollForward": "disable"}}), encoding="utf-8")
     (build_root / "NuGet.Config").write_text("<configuration><packageSources><clear /></packageSources></configuration>", encoding="utf-8")
-    sources = ["TranslationPack.cs", "PackClient.cs", "RuntimeInfo.cs", "UpdateClient.cs", "TranslationPatcher.cs", "LegacyCleanup.cs", "OverlayState.cs"]
+    sources = ["TranslationPack.cs", "PackClient.cs", "RuntimeInfo.cs", "UpdateClient.cs", "UpdateManifest.cs",
+               "UpdateInstaller.cs", "GameRestart.cs", "TranslationPatcher.cs", "LegacyCleanup.cs", "OverlayState.cs"]
     includes = "".join(f'<Compile Include="{escape(str(ROOT / "src/Plugin" / name), quote=True)}" />' for name in sources)
     project = build_root / "PluginLogic.csproj"
     project.write_text(f'''<Project Sdk="Microsoft.NET.Sdk">
@@ -252,7 +350,7 @@ def test_overlay_formats_separate_game_pack_and_plugin_fields(plugin_logic, game
         "GameVersion": "3.3.0", "GameRevision": game_revision,
         "PackVersion": "-", "PackRevision": "-", "PackNumber": "-",
         "InstalledVersion": "v2.1.1", "LatestVersion": latest,
-        "Status": "번역 팩 확인 중", "Severity": 0,
+        "Status": "번역 팩 확인 중", "Severity": 0, "RestartRequired": False,
     }
 
 
@@ -417,3 +515,381 @@ def test_legacy_cleanup_removes_data_folder_only_when_emptied(plugin_logic, tmp_
     assert plugin_logic({"mode": "cleanup", "bepinex": str(bepinex)})["failed"] is None
     assert not (data / "payloads").exists()
     assert (data / "user-notes.txt").read_bytes() == b"data"
+
+
+UPDATE_PREFIX = "BepInEx/plugins/AstralPartyKoreanPlugin/"
+UPDATE_DLL = "AstralPartyKoreanPlugin.dll"
+UPDATE_BUNDLE = "astralkorean_fonts.bundle"
+UPDATED_FILES = {UPDATE_DLL: b"verified new plugin DLL", UPDATE_BUNDLE: b"verified new font bundle"}
+
+
+def _base64(data):
+    return base64.b64encode(data).decode("ascii")
+
+
+def _update_request(tmp_path, *, version="3.1.0", manifest_change=None, zip_entries=None):
+    directory = tmp_path / "custom-location/plugin"
+    directory.mkdir(parents=True)
+    (directory / UPDATE_DLL).write_bytes(b"installed DLL")
+    (directory / UPDATE_BUNDLE).write_bytes(b"installed bundle")
+    archive = io.BytesIO()
+    entries = zip_entries if zip_entries is not None else [(UPDATE_PREFIX + name, data) for name, data in UPDATED_FILES.items()]
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
+        for name, data in entries:
+            output.writestr(name, data)
+    package = archive.getvalue()
+    name = f"AstralPartyKoreanPlugin-v{version}.zip"
+    manifest = {
+        "schemaVersion": 1, "version": version,
+        "package": {
+            "name": name,
+            "url": f"https://github.com/maynut02/astral-party-korean-plugin/releases/download/v{version}/{name}",
+            "size": len(package), "sha256": hashlib.sha256(package).hexdigest(),
+        },
+        "files": [{"path": UPDATE_PREFIX + name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+                  for name, data in UPDATED_FILES.items()],
+        "minimumBepInEx": "6.0.0-be.788",
+    }
+    if manifest_change:
+        manifest_change(manifest)
+    request = {
+        "mode": "plugin-update", "directory": str(directory), "installed": "3.0.0",
+        "bepinexVersion": "6.0.0-be.788+5b766a3", "manifest": _base64(json.dumps(manifest).encode()),
+        "package": _base64(package),
+    }
+    return request, directory
+
+
+def test_signed_plugin_update_installs_only_verified_files_beside_running_dll(plugin_logic, tmp_path):
+    request, directory = _update_request(tmp_path)
+    (directory / "translation-pack").mkdir()
+    (directory / "translation-pack/keep.json").write_bytes(b"cache")
+    result = plugin_logic(request)
+    assert result["state"] == {
+        "Latest": "v3.1.0", "Message": "플러그인 v3.1.0 설치 완료 · 다시 시작하면 적용됩니다",
+        "Severity": 1, "RestartRequired": True,
+    }
+    for name, data in UPDATED_FILES.items():
+        assert (directory / name).read_bytes() == data
+        assert (directory / (name + ".old")).is_file()
+        assert not (directory / (name + ".new")).exists()
+    assert (directory / "translation-pack/keep.json").read_bytes() == b"cache"
+    assert len(result["requests"]) == 3
+    assert result["requests"][0] == {
+        "url": "https://github.com/maynut02/astral-party-korean-plugin/releases/latest/download/update.json",
+        "limit": 64 * 1024, "noCache": True,
+    }
+    assert result["requests"][1]["url"].endswith("/update.json.sig")
+    assert result["requests"][1]["limit"] == 256
+    assert result["requests"][2]["limit"] == len(base64.b64decode(request["package"]))
+    assert result["requests"][2]["noCache"] is False
+
+
+@pytest.mark.parametrize("kind", ["invalid", "wrong-key", "tampered", "tampered-invalid-json", "der"])
+def test_plugin_update_rejects_untrusted_signature_before_parsing(plugin_logic, tmp_path, kind):
+    request, directory = _update_request(tmp_path)
+    if kind == "invalid":
+        request["invalidSignature"] = True
+    elif kind == "der":
+        request["derSignature"] = True
+    elif kind == "wrong-key":
+        request["untrustedKey"] = True
+    else:
+        raw = base64.b64decode(request["manifest"])
+        request["servedManifest"] = _base64(b"{" if kind == "tampered-invalid-json" else raw.replace(b"3.1.0", b"9.1.0"))
+    result = plugin_logic(request)
+    assert result["state"]["Latest"] == "확인 실패"
+    assert result["state"]["RestartRequired"] is False
+    assert any("CryptographicException" in message for message in result["logs"])
+    assert len(result["requests"]) == 2
+    assert (directory / UPDATE_DLL).read_bytes() == b"installed DLL"
+    assert not list(directory.glob("*.new"))
+
+
+@pytest.mark.parametrize("installed,bepinex,auto_off,expected_install", [
+    ("3.0.0", "6.0.0-be.788", False, True),
+    ("3.0.0", "6.0.0-be.789+build", False, True),
+    ("3.0.0", "6.0.0", False, True),
+    ("3.1.0", "6.0.0-be.788", False, False),
+    ("3.1.0+local", "6.0.0-be.788", False, False),
+    ("4.0.0", "6.0.0-be.788", False, False),
+    ("3.0.1-dev.2", "6.0.0-be.788", False, False),
+    ("3.1.0-rc.1", "6.0.0-be.788", False, False),
+    ("9.0.0-dev.99", "6.0.0-be.788", False, False),
+    ("3.0.0", "6.0.0-be.787+old", False, False),
+    ("3.0.0", "5.4.23", False, False),
+    ("3.0.0", "", False, False),
+    ("3.0.0", "not-a-version", False, False),
+    ("3.0.0", "6.0.0-be.788", True, False),
+])
+def test_plugin_update_version_loader_and_config_gates(plugin_logic, tmp_path, installed, bepinex, auto_off, expected_install):
+    request, directory = _update_request(tmp_path)
+    request.update(installed=installed, bepinexVersion=bepinex, autoOff=auto_off)
+    result = plugin_logic(request)
+    assert result["state"]["Latest"] == "v3.1.0"
+    assert result["state"]["RestartRequired"] is expected_install
+    assert len(result["requests"]) == (3 if expected_install else 2)
+    assert (directory / UPDATE_DLL).read_bytes() == (UPDATED_FILES[UPDATE_DLL] if expected_install else b"installed DLL")
+
+
+@pytest.mark.parametrize("change", [
+    lambda manifest: manifest.update(schemaVersion=2),
+    lambda manifest: manifest.pop("minimumBepInEx"),
+    lambda manifest: manifest.update(unknown=True),
+    lambda manifest: manifest.update(version="3.1.0-rc.1"),
+    lambda manifest: manifest["package"].update(name="another.zip"),
+    lambda manifest: manifest["package"].update(url=manifest["package"]["url"].replace("github.com/", "github.com.evil.example/")),
+    lambda manifest: manifest["package"].update(url=manifest["package"]["url"].replace("/maynut02/", "/someone-else/")),
+    lambda manifest: manifest["package"].update(url=manifest["package"]["url"].replace("https:", "http:")),
+    lambda manifest: manifest["package"].update(size=64 * 1024 * 1024 + 1),
+    lambda manifest: manifest["package"].update(size=0),
+    lambda manifest: manifest["package"].update(sha256="not-a-hash"),
+    lambda manifest: manifest["files"].pop(),
+    lambda manifest: manifest["files"].append(dict(manifest["files"][0])),
+    lambda manifest: manifest["files"][1].update(path=manifest["files"][0]["path"]),
+    lambda manifest: manifest["files"][0].update(path="../AstralPartyKoreanPlugin.dll"),
+    lambda manifest: manifest["files"][0].update(path=UPDATE_PREFIX + "Unknown.dll"),
+    lambda manifest: manifest["files"][0].update(size=64 * 1024 * 1024 + 1),
+    lambda manifest: manifest["files"][0].update(size=-1),
+])
+def test_plugin_update_rejects_invalid_signed_manifest(plugin_logic, tmp_path, change):
+    request, directory = _update_request(tmp_path, manifest_change=change)
+    result = plugin_logic(request)
+    assert result["state"]["Latest"] == "확인 실패"
+    assert result["state"]["RestartRequired"] is False
+    assert len(result["requests"]) == 2
+    assert (directory / UPDATE_DLL).read_bytes() == b"installed DLL"
+
+
+@pytest.mark.parametrize("part", ["package-size", "package-hash", "file-size", "file-hash", "download-size", "download-hash"])
+def test_plugin_update_rejects_size_and_hash_mismatches(plugin_logic, tmp_path, part):
+    def change(manifest):
+        if part == "package-size":
+            manifest["package"]["size"] += 1
+        elif part == "package-hash":
+            manifest["package"]["sha256"] = "0" * 64
+        elif part == "file-size":
+            manifest["files"][0]["size"] += 1
+        elif part == "file-hash":
+            manifest["files"][1]["sha256"] = "0" * 64
+    request, directory = _update_request(tmp_path, manifest_change=change)
+    package = base64.b64decode(request["package"])
+    if part == "download-size":
+        request["package"] = _base64(package[:-1])
+    elif part == "download-hash":
+        request["package"] = _base64(bytes([package[0] ^ 1]) + package[1:])
+    result = plugin_logic(request)
+    assert result["state"]["Latest"] == "v3.1.0"
+    assert result["state"]["RestartRequired"] is False
+    assert "업데이트 실패" in result["state"]["Message"]
+    assert len(result["requests"]) == 3
+    assert (directory / UPDATE_DLL).read_bytes() == b"installed DLL"
+    assert (directory / UPDATE_BUNDLE).read_bytes() == b"installed bundle"
+    assert not list(directory.glob("*.new"))
+
+
+@pytest.mark.parametrize("kind", ["extra", "missing", "duplicate", "traversal", "directory"])
+def test_plugin_update_rejects_nonexact_zip_entries(plugin_logic, tmp_path, kind):
+    entries = [(UPDATE_PREFIX + name, data) for name, data in UPDATED_FILES.items()]
+    if kind == "extra":
+        entries.append((UPDATE_PREFIX + "extra.txt", b"extra"))
+    elif kind == "missing":
+        entries.pop()
+    elif kind == "duplicate":
+        entries[1] = entries[0]
+    elif kind == "traversal":
+        entries[1] = ("../outside", entries[1][1])
+    else:
+        entries[1] = (UPDATE_PREFIX, b"")
+    request, directory = _update_request(tmp_path, zip_entries=entries)
+    result = plugin_logic(request)
+    assert result["state"]["RestartRequired"] is False
+    assert (directory / UPDATE_DLL).read_bytes() == b"installed DLL"
+    assert not (directory.parent / "outside").exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows image mapping and file sharing semantics")
+def test_plugin_update_swaps_loaded_image_without_deleting_it(plugin_logic, tmp_path):
+    request, directory = _update_request(tmp_path)
+    dll = directory / UPDATE_DLL
+    shutil.copyfile(sys.executable, dll)
+    previous_image = dll.read_bytes()
+    request["lockedDll"] = str(dll)
+    result = plugin_logic(request)
+    assert result["state"]["RestartRequired"] is True
+    assert dll.read_bytes() == UPDATED_FILES[UPDATE_DLL]
+    assert (directory / (UPDATE_DLL + ".old")).read_bytes() == previous_image
+    cleanup = plugin_logic({"mode": "update-startup", "directory": str(directory)})
+    assert cleanup["failure"] is None
+    assert not list(directory.glob("*.old"))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows file sharing semantics")
+def test_plugin_update_keeps_installed_pair_when_dll_swap_is_denied(plugin_logic, tmp_path):
+    request, directory = _update_request(tmp_path)
+    request["lockDll"] = True
+    result = plugin_logic(request)
+    assert result["state"]["RestartRequired"] is False
+    assert (directory / UPDATE_DLL).read_bytes() == b"installed DLL"
+    assert (directory / (UPDATE_DLL + ".new")).read_bytes() == UPDATED_FILES[UPDATE_DLL]
+    # A newer bundle must never be left beside the old DLL once startup discards the failed staging.
+    assert (directory / UPDATE_BUNDLE).read_bytes() == b"installed bundle"
+    assert plugin_logic({"mode": "update-startup", "directory": str(directory)})["failure"] is None
+    assert sorted(path.name for path in directory.iterdir()) == sorted([UPDATE_DLL, UPDATE_BUNDLE])
+    assert (directory / UPDATE_BUNDLE).read_bytes() == b"installed bundle"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Unity-like bundle file sharing semantics")
+def test_plugin_update_stages_locked_bundle_and_applies_before_next_font_load(plugin_logic, tmp_path):
+    request, directory = _update_request(tmp_path)
+    request.update(lockBundle=True, nextStartup=True)
+    result = plugin_logic(request)
+    assert result["state"]["RestartRequired"] is True
+    assert result["staged"] is True
+    assert result["startupFailure"] is None
+    for name, data in UPDATED_FILES.items():
+        assert (directory / name).read_bytes() == data
+    assert not list(directory.glob("*.new"))
+    assert not list(directory.glob("*.old"))
+    assert not (directory / ".update.json").exists()
+    assert any("Font bundle is in use" in message for message in result["logs"])
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Unity-like bundle file sharing semantics")
+def test_staged_update_rechecks_signed_file_hash_before_applying(plugin_logic, tmp_path):
+    request, directory = _update_request(tmp_path)
+    request.update(lockBundle=True, nextStartup=True, tamperStaged=True)
+    result = plugin_logic(request)
+    assert result["staged"] is True
+    assert result["startupFailure"] is not None
+    assert (directory / UPDATE_BUNDLE).read_bytes() == b"installed bundle"
+    assert not list(directory.glob("*.new"))
+    assert not (directory / ".update.json").exists()
+
+
+def test_plugin_update_cleans_only_own_backups_and_recovers_missing_bundle(plugin_logic, tmp_path):
+    directory = tmp_path / "plugin"
+    directory.mkdir()
+    (directory / UPDATE_DLL).write_bytes(b"current")
+    (directory / (UPDATE_DLL + ".old")).write_bytes(b"old")
+    (directory / (UPDATE_BUNDLE + ".old")).write_bytes(b"last valid bundle")
+    (directory / "other.dll.old").write_bytes(b"unrelated")
+    result = plugin_logic({"mode": "update-startup", "directory": str(directory)})
+    assert result["failure"] is None
+    assert (directory / UPDATE_DLL).read_bytes() == b"current"
+    assert (directory / UPDATE_BUNDLE).read_bytes() == b"last valid bundle"
+    assert not (directory / (UPDATE_DLL + ".old")).exists()
+    assert (directory / "other.dll.old").read_bytes() == b"unrelated"
+
+
+def test_plugin_update_never_applies_unauthenticated_staged_files(plugin_logic, tmp_path):
+    directory = tmp_path / "plugin"
+    directory.mkdir()
+    (directory / UPDATE_DLL).write_bytes(b"current")
+    (directory / (UPDATE_DLL + ".new")).write_bytes(b"unsigned")
+    result = plugin_logic({"mode": "update-startup", "directory": str(directory)})
+    assert result["failure"] is None
+    assert (directory / UPDATE_DLL).read_bytes() == b"current"
+    assert not (directory / (UPDATE_DLL + ".new")).exists()
+
+
+def test_dev_startup_never_applies_staged_release(plugin_logic, tmp_path):
+    directory = tmp_path / "plugin"
+    directory.mkdir()
+    (directory / UPDATE_DLL).write_bytes(b"dev build")
+    (directory / (UPDATE_DLL + ".new")).write_bytes(b"pending release")
+    result = plugin_logic({"mode": "update-startup", "directory": str(directory), "devBuild": True})
+    assert result["failure"] is None
+    assert (directory / UPDATE_DLL).read_bytes() == b"dev build"
+    assert not (directory / (UPDATE_DLL + ".new")).exists()
+
+
+@pytest.mark.parametrize("cleanup_failure", [None, "old.dll"])
+def test_overlay_update_status_and_restart_do_not_hide_cleanup_errors(plugin_logic, cleanup_failure):
+    result = plugin_logic({
+        "mode": "overlay", "gameVersion": "3.3.0", "gameRevision": "026", "installed": "3.0.0",
+        "latest": "v3.1.0", "updateMessage": "플러그인 v3.1.0 설치 완료 · 다시 시작하면 적용됩니다",
+        "restartRequired": True, "cleanupFailure": cleanup_failure,
+    })
+    assert result["RestartRequired"] is True
+    assert result["LatestVersion"] == "v3.1.0"
+    assert result["Severity"] == (3 if cleanup_failure else 1)
+    assert ("이전 파일 정리 실패" if cleanup_failure else "설치 완료") in result["Status"]
+
+
+def test_overlay_update_failure_is_concise_warning(plugin_logic):
+    result = plugin_logic({
+        "mode": "overlay", "gameVersion": "3.3.0", "gameRevision": "026", "installed": "3.0.0",
+        "latest": "v3.1.0", "updateMessage": "플러그인 업데이트 실패 · 게임 종료 후 수동 업데이트해 주세요",
+        "updateWarning": True,
+    })
+    assert result["Severity"] == 2
+    assert "수동 업데이트" in result["Status"]
+    assert result["RestartRequired"] is False
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows restart command")
+def test_restart_helper_waits_for_pid_without_powershell(plugin_logic, tmp_path):
+    executable = tmp_path / "game & percent% and !/AstralParty_INT.exe"
+    executable.parent.mkdir()
+    executable.write_bytes(b"not executed by this test")
+    result = plugin_logic({"mode": "restart-command", "executable": str(executable), "pid": 12345})
+    assert Path(result["FileName"]).name.lower() == "cmd.exe"
+    assert result["Arguments"].startswith('/d /v:off /c "')
+    assert "PID eq 12345" in result["Arguments"]
+    assert "tasklist.exe" in result["Arguments"]
+    assert "start" in result["Arguments"]
+    assert "powershell" not in result["Arguments"].lower()
+    assert str(executable) not in result["Arguments"]
+    assert result["executable"] == str(executable)
+    assert result["directory"] == str(executable.parent)
+    assert result["UseShellExecute"] is False
+    assert result["CreateNoWindow"] is True
+    # An inherited DOORSTOP_DISABLE makes the relaunched game skip BepInEx.
+    assert result["doorstop"] == []
+    assert result["steamAppId"] == "2622000"
+
+
+@pytest.mark.parametrize("kind", ["oversized", "duplicate-root", "duplicate-package", "bom"])
+def test_plugin_update_rejects_malformed_signed_manifest_bytes(plugin_logic, tmp_path, kind):
+    request, directory = _update_request(tmp_path)
+    raw = base64.b64decode(request["manifest"])
+    if kind == "oversized":
+        raw += b" " * (64 * 1024)
+    elif kind == "duplicate-root":
+        raw = raw.replace(b'"schemaVersion": 1', b'"schemaVersion": 1, "schemaVersion": 1')
+    elif kind == "duplicate-package":
+        raw = raw.replace(b'"size":', b'"unknown": 0, "size":', 1)
+    else:
+        raw = b"\xef\xbb\xbf" + raw
+    request["manifest"] = _base64(raw)
+    result = plugin_logic(request)
+    assert result["state"]["Latest"] == "확인 실패"
+    assert result["state"]["RestartRequired"] is False
+    assert len(result["requests"]) == 2
+    assert (directory / UPDATE_DLL).read_bytes() == b"installed DLL"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Unity-like bundle file sharing semantics")
+def test_staged_bundle_never_downgrades_a_manually_newer_plugin(plugin_logic, tmp_path):
+    request, directory = _update_request(tmp_path)
+    request.update(lockBundle=True, nextStartup=True, startupInstalled="4.0.0")
+    result = plugin_logic(request)
+    assert result["staged"] is True
+    assert result["startupFailure"] is None
+    assert (directory / UPDATE_BUNDLE).read_bytes() == b"installed bundle"
+    assert not list(directory.glob("*.new"))
+    assert not (directory / ".update.json").exists()
+    assert any("Discarding staged plugin update v" in message for message in result["logs"])
+
+
+def test_plugin_update_offline_failure_keeps_installed_files(plugin_logic, tmp_path):
+    request, directory = _update_request(tmp_path)
+    request["offline"] = True
+    result = plugin_logic(request)
+    assert result["state"]["Latest"] == "확인 실패"
+    assert result["state"]["Severity"] == 2
+    assert result["state"]["RestartRequired"] is False
+    assert result["state"]["Message"] is None
+    assert (directory / UPDATE_DLL).read_bytes() == b"installed DLL"
+    assert (directory / UPDATE_BUNDLE).read_bytes() == b"installed bundle"

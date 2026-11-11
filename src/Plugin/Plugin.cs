@@ -12,7 +12,7 @@ using UnityEngine.EventSystems;
 
 namespace AstralParty.KoreanPatch;
 
-[BepInPlugin(PluginGuid, PluginName, PluginVersion)]
+[BepInPlugin(PluginGuid, PluginName, AstralBuildVersion.Core)]
 public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "astral-party.korean-patch";
@@ -24,6 +24,7 @@ public sealed class Plugin : BasePlugin
     internal static PluginUpdateClient Updates = null!;
     private static int lastUiFrame = -1;
     private static string? cleanupFailure;
+    private static bool restartRequested;
     private Harmony harmony = null!;
 
     public override void Load()
@@ -34,11 +35,28 @@ public sealed class Plugin : BasePlugin
         Route = GameRoute.Detect(Process.GetCurrentProcess().ProcessName, Application.dataPath);
         var pluginDirectory = Path.GetDirectoryName(typeof(Plugin).Assembly.Location)!;
         cleanupFailure = LegacyCleanup.Run(Paths.BepInExRootPath, pluginDirectory, message => Log.LogWarning(message));
+        var startupFailure = new UpdateInstaller(pluginDirectory, message => Log.LogInfo(message))
+            .PrepareStartup(PluginVersion);
+        var autoUpdate = Config.Bind("Update", "AutoUpdate", true,
+            "게임 시작 시 서명된 최신 플러그인을 자동 설치합니다. 적용하려면 게임을 다시 시작해야 합니다.");
+        string bepinexVersion;
+        try
+        {
+            // The API returns SemanticVersioning.Version; avoid adding that DLL to the plugin references.
+            bepinexVersion = typeof(Paths).GetProperty("BepInExVersion", BindingFlags.Public | BindingFlags.Static)?
+                .GetValue(null)?.ToString() ?? "";
+        }
+        catch (Exception ex)
+        {
+            bepinexVersion = "";
+            Log.LogWarning("Could not read running BepInEx version; plugin auto-install disabled: " + ex);
+        }
         var http = new RuntimeHttp(PluginVersion);
         // Everything the plugin writes stays in its own folder, so deleting that folder uninstalls it fully.
         Packs = new PackClient(Path.Combine(pluginDirectory, "translation-pack"),
             http.DownloadAsync, message => Log.LogInfo(message), elapsed);
-        Updates = new PluginUpdateClient(PluginVersion, http.DownloadAsync, message => Log.LogInfo(message));
+        Updates = new PluginUpdateClient(PluginVersion, bepinexVersion, autoUpdate.Value, pluginDirectory,
+            http.DownloadAsync, message => Log.LogInfo(message), startupFailure);
         harmony = new Harmony(PluginGuid);
         Patch("SystemConfig.GetFontAsset", () => AccessTools.Method(typeof(SystemConfig), nameof(SystemConfig.GetFontAsset)),
             typeof(FontAssets), nameof(FontAssets.GetFontAssetPostfix), postfix: true);
@@ -53,7 +71,8 @@ public sealed class Plugin : BasePlugin
         // HybridCLR cannot inject plugin MonoBehaviours or managed UnityEvent delegates.
         Patch("EventSystem.Update", () => AccessTools.Method(typeof(EventSystem), "Update"),
             typeof(Plugin), nameof(EventSystemUpdatePrefix));
-        Log.LogInfo("Astral Party Korean Patch loaded; route=" + (Route?.Name ?? "unsupported"));
+        Log.LogInfo("Astral Party Korean Patch v" + PluginVersion + " loaded; route=" + (Route?.Name ?? "unsupported") +
+            "; BepInEx=" + bepinexVersion + "; AutoUpdate=" + autoUpdate.Value);
     }
 
     private void Patch(string label, Func<MethodBase?> resolve, Type owner, string hook, bool postfix = false)
@@ -79,7 +98,23 @@ public sealed class Plugin : BasePlugin
     }
 
     internal static OverlaySnapshot GetUiSnapshot() => OverlayState.Create(GameInfoReader.Version,
-        GameInfoReader.Revision, PluginVersion, Updates.Latest, Route != null, cleanupFailure, Packs.Snapshot());
+        GameInfoReader.Revision, PluginVersion, Updates.Snapshot(), Route != null, cleanupFailure, Packs.Snapshot());
+
+    internal static void Restart()
+    {
+        if (restartRequested || !Updates.Snapshot().RestartRequired) return;
+        try
+        {
+            using var current = Process.GetCurrentProcess();
+            var executable = Paths.ExecutablePath;
+            if (string.IsNullOrEmpty(executable)) executable = current.MainModule?.FileName ?? "";
+            GameRestart.Start(executable, current.Id);
+            restartRequested = true;
+            Logger.LogInfo("Restart helper waiting for game PID " + current.Id + "; executable=" + executable);
+            Application.Quit();
+        }
+        catch (Exception ex) { Updates.RestartFailed(ex); }
+    }
 
     internal static void Event(string name, string message) => Logger.LogInfo(name + ": " + message);
 }

@@ -20,6 +20,9 @@ internal static class StatusOverlay
     private static readonly List<FguiNode> Nodes = new();
     private static FguiNode? window;
     private static FguiNode? closeButton;
+    private static FguiNode? restartButton;
+    private static float panelHeight = Height;
+    private static bool updateNotified;
     private static FguiNode? gameVersion;
     private static FguiNode? gameRevision;
     private static FguiNode? packVersion;
@@ -52,9 +55,20 @@ internal static class StatusOverlay
             DisposeNodes();
             ReleaseFont();
         }
-        if (closed) return;
         try
         {
+            if (!updateNotified && Plugin.Updates.Snapshot().RestartRequired)
+            {
+                updateNotified = true;
+                closed = false;
+                Plugin.Event("OVERLAY_UPDATE_INSTALLED", "Reopening once to offer game restart");
+                if (window != null)
+                {
+                    Retire();
+                    return;
+                }
+            }
+            if (closed) return;
             var root = FguiNode.RootPointer;
             if (root == IntPtr.Zero) return;
             if (window != null && (!window.IsAlive || FguiNode.ParentOf(window.Pointer) != root))
@@ -77,12 +91,15 @@ internal static class StatusOverlay
             }
             if (window == null) Create(root);
             window!.SetXY(Math.Max(0f, FguiNode.WidthOf(root) - Width - Margin),
-                Math.Max(0f, FguiNode.HeightOf(root) - Height - Margin));
+                Math.Max(0f, FguiNode.HeightOf(root) - panelHeight - Margin));
             RefreshTexts();
             if (Input.GetKeyDown(KeyCode.Escape))
                 Close("Escape");
-            else if (Input.GetMouseButtonUp(0) && CloseTarget(root))
-                Close("close button");
+            else if (Input.GetMouseButtonUp(0))
+            {
+                if (ButtonTarget(root, closeButton)) Close("close button");
+                else if (ButtonTarget(root, restartButton)) Plugin.Restart();
+            }
         }
         catch (Exception ex)
         {
@@ -92,12 +109,13 @@ internal static class StatusOverlay
         }
     }
 
-    private static bool CloseTarget(IntPtr root)
+    private static bool ButtonTarget(IntPtr root, FguiNode? button)
     {
+        if (button == null) return false;
         var target = FguiNode.TouchTarget(root);
         for (var depth = 0; target != IntPtr.Zero && depth < 16; depth++)
         {
-            if (target == closeButton!.Pointer) return true;
+            if (target == button.Pointer) return true;
             if (target == root || target == window!.Pointer) break;
             target = FguiNode.ParentOf(target);
         }
@@ -107,13 +125,14 @@ internal static class StatusOverlay
     private static void Create(IntPtr root)
     {
         RegisterFont();
-        window = Track(FguiNode.Component(Width, Height));
+        panelHeight = Plugin.Updates.Snapshot().RestartRequired ? Height + 60f : Height;
+        window = Track(FguiNode.Component(Width, panelHeight));
         // Never expose a partially constructed tree if a game signature changed.
         window.SetVisible(false);
         window.SetOpaque(true);
         window.SetSortingOrder(SortingOrder);
         FguiNode.AddToRoot(root, window);
-        AddGraph(window, 0f, 0f, Width, Height, PanelColor, 26f, 2f, AccentColor);
+        AddGraph(window, 0f, 0f, Width, panelHeight, PanelColor, 26f, 2f, AccentColor);
         AddText(window, "아스트랄 파티 한글패치", 28, BodyColor, 28f, 22f, 410f, 42f);
         closeButton = AddComponent(window, 454f, 18f, 48f, 48f);
         closeButton.SetOpaque(true);
@@ -135,14 +154,21 @@ internal static class StatusOverlay
         // Same 56-unit band as the cell rows, so the text centers on the "상태" label.
         status = AddText(window, "", 18, StatusColor(StatusSeverity.Checking),
             130f, 314f, 362f, 56f, wrap: true);
+        if (Plugin.Updates.Snapshot().RestartRequired)
+        {
+            restartButton = AddComponent(window, 306f, 390f, 186f, 42f);
+            restartButton.SetOpaque(true);
+            AddGraph(restartButton, 0f, 0f, 186f, 42f, AccentColor, 12f);
+            AddText(restartButton, "지금 다시 시작", 19, BodyColor, 24f, 0f, 154f, 42f);
+        }
         RefreshTexts();
         window.SetXY(Math.Max(0f, FguiNode.WidthOf(root) - Width - Margin),
-            Math.Max(0f, FguiNode.HeightOf(root) - Height - Margin));
+            Math.Max(0f, FguiNode.HeightOf(root) - panelHeight - Margin));
         window.SetVisible(true);
         if (!readyLogged)
         {
             readyLogged = true;
-            Plugin.Event("OVERLAY_READY", "FairyGUI; 520x400 GRoot units; sortingOrder=890000; opaque hit testing; " +
+            Plugin.Event("OVERLAY_READY", "FairyGUI; 520x" + panelHeight + " GRoot units; sortingOrder=890000; opaque hit testing; " +
                 "font=" + (fontName ?? "game default"));
         }
     }
@@ -271,7 +297,7 @@ internal static class StatusOverlay
             catch (Exception ex) { ReportFailure(ex); }
         }
         Nodes.Clear();
-        window = closeButton = gameVersion = gameRevision = null;
+        window = closeButton = restartButton = gameVersion = gameRevision = null;
         packVersion = packRevision = packNumber = installedVersion = latestVersion = status = null;
         snapshot = null;
     }
