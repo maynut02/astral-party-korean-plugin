@@ -1,18 +1,40 @@
-# 로컬 빌드와 릴리즈
+# 한 명령으로 빌드·서명·릴리스
 
-커밋을 모아 버전을 한 번 준비하고, 같은 소스 커밋에서 만든 ZIP과 체크섬을 GitHub Release에 게시합니다. GitHub Actions는 `Checks`만 실행합니다. 환경 준비와 검사는 [개발 문서](development.md)에 있습니다.
+소스 변경을 커밋하고 `origin`에 push한 뒤 한 명령으로 빌드, 두 ZIP 생성, 자동 업데이트 서명, 태그 push와 GitHub Release 공개까지 처리합니다. 버전만 올리는 파일이나 커밋은 만들지 않습니다. GitHub Actions는 검사만 실행합니다.
 
-## 버전의 기준
+## 준비
 
-루트의 `VERSION`이 제품 버전의 유일한 기준입니다. MSBuild가 이 값을 검증하고 `obj`에 `AstralBuildVersion.Value`를 생성합니다. BepInEx 플러그인 정보와 DLL 제품·파일·어셈블리 버전, 패키지가 같은 값을 사용합니다. `X.Y.Z`의 어셈블리 버전은 `X.Y.Z.0`입니다.
+- PowerShell **7.2 이상**, Git, [GitHub CLI](https://cli.github.com/), Python과 `pytest`
+- [개발 환경](development.md)에 따라 준비한 .NET SDK, 게임·BepInEx 참조 DLL
+- `gh auth login`으로 로그인한 저장소 쓰기 권한 계정
+- 아래의 플러그인 업데이트 서명 개인 키
+- 전체 Git 기록과 릴리스 태그; shallow clone에서는 릴리스 버전을 계산하지 않습니다.
 
-빌드·패키징은 버전을 올리지 않습니다. `build.ps1`의 `-Version`과 MSBuild의 `-p:Version`은 `VERSION`과 같아야 합니다.
+```powershell
+git fetch origin --tags
+# 변경을 커밋한 뒤 현재 브랜치의 upstream을 origin으로 설정하고 push
+# 예: git push -u origin main
+.\scripts\release.ps1 -Preview | Format-List
+.\scripts\release.ps1
+```
 
-플러그인 배포 버전과 번역 팩은 별개입니다. DLL·폰트 번들은 [플러그인 Releases](https://github.com/maynut02/astral-party-korean-plugin/releases), 번역 팩은 `https://file.maynutlab.com/translation-pack/latest.json`에서 관리합니다. 팩의 `number`만 최신 여부 판단에 사용합니다.
+`-Preview`는 버전·태그·이전 태그·소스 SHA·커밋 수·대상 저장소·서명 키 경로·검사 여부·첨부 파일·릴리스 본문·실행 순서를 표시합니다. GitHub나 다운로드 서버에 접속하지 않고 파일, 태그, 커밋을 만들지 않습니다. 따라서 원격 인증·권한·태그 충돌은 실제 실행의 사전 검사에서 확인합니다. Preview도 깨끗한 작업 트리와 `origin` upstream에 포함된 HEAD를 요구합니다.
+
+실제 실행 순서:
+
+1. 깨끗한 작업 트리, 전체 기록, `origin` upstream에 HEAD 포함 여부를 검사하고 버전을 계산합니다.
+2. GitHub 인증·저장소 쓰기 권한·push된 소스 SHA·기존 태그·Release를 읽기 전용으로 검사합니다. 이 단계의 실패는 출력 파일 생성·다운로드·태그 생성 전에 중단합니다.
+3. 신뢰하는 공개 키와 개인 키가 일치하는지 확인하고 `scripts/check.ps1`을 실행합니다.
+4. 정확한 릴리스 버전으로 최신 소스를 빌드하고 두 ZIP, 서명한 `update.json`, `update.json.sig`, 체크섬을 만듭니다.
+5. 서명·크기·해시·패키지 경로와 기존 원격 첨부 파일의 digest를 다시 확인합니다. 소스가 바뀌면 중단합니다.
+6. HEAD에 annotated tag `vX.Y.Z`를 만들고 `origin`에 push합니다.
+7. GitHub Release를 draft로 만들고 다섯 첨부 파일을 업로드한 뒤 공개합니다.
+
+검사를 이미 수행한 경우에만 `-SkipChecks`를 사용하세요. 이 옵션은 빌드, 서명 검증, 작업 트리·원격·digest 안전 검사를 생략하지 않습니다. `-GameRoot`, `-RefsRoot`, `-WorkRoot`, `-OutputRoot`, `-DotNetPath`, `-PythonPath`도 지정할 수 있습니다. 사용자 지정 출력·작업 경로는 Git에서 무시되는 위치를 사용하세요.
 
 ## 커밋에 따른 버전 결정
 
-`prepare-release.ps1`은 HEAD에서 도달 가능한 가장 높은 정식 `vX.Y.Z` 태그 이후의 커밋을 분석합니다. 여러 변경 중 가장 큰 증가 종류를 한 번 적용합니다.
+Git의 정식 `vX.Y.Z` 태그가 버전의 유일한 기준입니다. HEAD에서 도달 가능한 태그 중 숫자로 가장 높은 버전 이후의 커밋을 분석해 가장 큰 증가를 한 번 적용합니다. 병합 커밋은 제외하고 squash 커밋과 scope는 지원합니다. prerelease·비정규 태그·다른 브랜치에서만 도달하는 태그는 기준으로 사용하지 않습니다.
 
 | 커밋 | 자동 증가 |
 | --- | --- |
@@ -21,129 +43,92 @@
 | 타입 뒤 `!`, 본문의 `BREAKING CHANGE:`·`BREAKING-CHANGE:` | `0.x`는 minor, `1.x` 이상은 major |
 | `docs:`·`chore:`·`ci:`·`test:`·`refactor:` 등 | 증가 없음 |
 
-예를 들어 `fix:` 세 개와 `feat:` 한 개는 minor를 한 번 증가시킵니다. 이전 릴리즈 태그가 없는 첫 배포는 현재 `VERSION`을 그대로 사용합니다.
+`fix:` 세 개와 `feat:` 한 개는 minor를 한 번 증가시킵니다. `v2.1.1` 이후 `feat!:`가 있으면 다음 릴리스는 `v3.0.0`입니다. 태그가 없는 첫 저장소는 `0.0.0`을 계산 기준으로 사용합니다. 배포할 변경이 없으면 자동 릴리스를 거부합니다.
 
-커밋은 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) 형식으로 작성하며 scope도 지원합니다. 병합 커밋은 제외하고 squash 커밋은 일반 커밋으로 분석합니다.
-
-## 1. 버전 준비
-
-소스 변경을 먼저 커밋하고 이전 릴리즈 태그를 가져옵니다. 저장소 루트에서 실행합니다.
+의도적으로 문서만 배포하거나 버전을 직접 고르려면 다음 중 하나를 사용합니다. 두 override는 함께 사용할 수 없습니다.
 
 ```powershell
-git fetch origin --tags
-.\scripts\prepare-release.ps1 -Preview
-.\scripts\prepare-release.ps1
+.\scripts\release.ps1 -Bump patch
+.\scripts\release.ps1 -Bump minor
+.\scripts\release.ps1 -Bump major
+.\scripts\release.ps1 -Version 3.0.0
 ```
 
-`-Preview`는 파일을 바꾸지 않고 버전·태그·소스 커밋·커밋 수를 보여줍니다. 실제 실행은 필요한 경우 `VERSION`을 갱신하고 `.work/releases/vX.Y.Z/release-notes.md`에 설명 초안을 만듭니다.
+`0.x`에서 명시한 `-Bump major`는 `1.0.0`으로 전환합니다. 릴리스 버전은 정식 `X.Y.Z`이며 이전 버전 이하, 기존 태그 재사용, .NET 메타데이터 범위(각 숫자 0~65534) 초과를 거부합니다. 기존 공개 파일을 변경하려면 새 버전을 사용하세요.
 
-공통 `scripts/release-notes.ps1`은 변경 사항에 커밋 제목과 7자리 SHA를 오래된 순서로 나열하고, 해당 플러그인의 설치·사용·업데이트 안내와 관련 링크를 덧붙입니다. 커밋 본문과 병합 커밋은 목록에서 제외합니다. 준비 명령과 업로더의 이력 자동 생성은 같은 생성기를 사용합니다.
+로컬 개발 빌드 `scripts/build.ps1`은 `<다음 버전>-dev.<마지막 태그 이후 커밋 수>`를 사용합니다. 릴리스 대상 커밋이 없어도 다음 patch의 dev 버전으로 빌드하며, 태그 바로 위도 `-dev.0`으로 구분합니다. 명시한 `build.ps1 -Version`은 SemVer prerelease·build metadata를 허용합니다. `AstralBuildVersion.Value`와 InformationalVersion은 전체 값, `.Core`와 BepInEx 플러그인 메타데이터는 `X.Y.Z`, AssemblyVersion·FileVersion은 `X.Y.Z.0`입니다.
 
-같은 배포를 다시 준비해도 버전을 추가로 올리지 않습니다. 현재 `VERSION`이 마지막 태그보다 높으면 준비한 버전으로 판단하고, 추가 변경으로 더 큰 버전이 필요해지면 중단합니다. 문서만 새 버전으로 배포하거나 증가 종류·버전을 직접 선택할 때는 다음 중 하나를 사용합니다.
+## 서명 키 보관과 교체
 
-```powershell
-.\scripts\prepare-release.ps1 -Bump patch
-.\scripts\prepare-release.ps1 -Bump minor
-.\scripts\prepare-release.ps1 -Bump major
-.\scripts\prepare-release.ps1 -Version 3.0.0
-```
+기본 개인 키는 `%USERPROFILE%\.astral-party\plugin-update-signing.pem`입니다. **암호화하지 않은 ECDSA P-256 PKCS#8 PEM**(`BEGIN PRIVATE KEY`)을 사용합니다. 다음 우선순위로 위치를 선택합니다.
 
-`0.x`에서 `-Bump major`는 첫 정식 `1.0.0`으로 전환합니다. 준비 명령은 `VERSION` 이외의 미커밋 변경, shallow clone, 이전 태그와 커밋된 `VERSION`의 불일치, 버전 감소와 기존 태그 재사용을 거부합니다. 이미 공개한 파일을 교체하려면 새 버전을 준비하세요. 버전 형식은 [SemVer](https://semver.org/lang/ko/)를 따릅니다.
+1. `-SigningKeyPath 'D:\private\plugin-update-signing.pem'`
+2. 환경 변수 `ASTRAL_UPDATE_SIGNING_KEY`
+3. 기본 사용자 프로필 경로
 
-## 2. 검증과 버전 커밋
+개인 키를 저장소, ZIP, 릴리스, 로그, 공유 작업 폴더에 넣지 마세요. 파일 접근 권한을 배포 담당 계정으로 제한하고 암호화한 오프라인 백업을 별도로 보관하세요. `.pem` 등 비밀 파일은 Git에서 무시하지만 이것만 보안 경계로 삼지 마세요. 키를 잃으면 기존 플러그인이 신뢰하는 자동 업데이트를 서명할 수 없습니다.
 
-[개발 문서의 검사와 실제 게임 확인](development.md#검증)을 수행합니다. `VERSION`이 바뀌었다면 커밋하고 최종 소스 커밋을 `origin`에 push합니다.
-
-```powershell
-git add VERSION
-git commit -m "chore: 릴리즈 버전 준비"
-git push origin main
-```
-
-버전이 그대로라면 버전만을 위한 커밋은 생략합니다. 업로드에 사용할 최종 HEAD는 먼저 push해야 합니다. 준비 명령을 다시 실행하면 같은 버전으로 최종 커밋까지 설명 초안을 갱신합니다.
-
-```powershell
-.\scripts\prepare-release.ps1
-git status --short
-git rev-parse HEAD
-```
-
-미커밋 변경이 없는 상태에서 빌드하고 업로드까지 같은 HEAD를 유지하세요. 소스 커밋이 바뀌면 해당 커밋을 push하고 패키지를 다시 생성합니다.
-
-## 3. 로컬 빌드와 패키징
-
-```powershell
-.\scripts\package-release.ps1
-```
-
-기본 패키징은 기존 DLL이 있어도 최신 소스를 빌드한 뒤 릴리즈 파일을 생성합니다. 선행 빌드는 필요 없으며 빌드 실패 시 예전 DLL로 패키징하지 않고 중단합니다. 기본 태그는 `VERSION`의 `vX.Y.Z`이고 기본 릴리즈 폴더는 `dist/release/<태그>/`입니다.
-
-패키징은 DLL의 어셈블리 이름과 제품 버전을 확인하고, 예상한 산출물 이외의 파일이 있는 출력 폴더를 거부합니다. ZIP은 생성에 성공한 뒤 교체하므로 생성 실패 시 이전 ZIP을 유지합니다.
-
-`VERSION`이 `3.0.0`인 예시는 다음과 같습니다. 내부 빌드는 `dist/`의 DLL·폰트 번들과 `build-references.json`을 갱신하고 이를 릴리즈 폴더에 복사합니다.
+플러그인에 내장된 신뢰 공개 키(SubjectPublicKeyInfo base64):
 
 ```text
-dist/release/v3.0.0/
-├─ AstralPartyKoreanPlugin.dll
-├─ astralkorean_fonts.bundle
-├─ build-references.json
-├─ AstralPartyKoreanPlugin-v3.0.0.zip
-├─ SHA256SUMS.txt
-└─ windows-plugin-build.json
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEylLFkAOyq5ioR6NxNYMWG5R6d1tocK4EeRzPIf6r6Ia4U5mn9lKCi9nwkm8g6LoAfulbxhT8954C9+/Lrj4UJA==
 ```
 
-ZIP에는 아래 두 파일만 들어갑니다. 게임 참조 DLL, BepInEx 본체, SDK, PDB, 문서는 포함하지 않습니다.
+배포 스크립트는 개인 키의 공개 키가 이 값과 일치하는지 먼저 검사하고, 생성한 서명도 이 공개 키로 다시 검증합니다. 다른 개인 키를 임의 생성해 현재 키 대신 사용하면 릴리스가 실패합니다. 테스트만 임시 키를 생성하며 운영 키를 사용하지 않습니다.
 
-```text
-BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle
-BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll
-```
+키 회전은 배포·플러그인의 신뢰 키를 함께 바꾸는 보안 변경입니다. 현재 플러그인은 하나의 공개 키를 신뢰하므로 새 키로만 서명한 릴리스는 이전 설치가 자동으로 받지 못합니다. 키 교체 시 검토된 신뢰 전환을 먼저 설계하거나 사용자에게 전체 패키지를 통한 수동 재설치를 안내하세요. 키 유출 시 자동 업데이트 신뢰를 복구할 방법과 수동 설치 경로를 공지해야 합니다.
 
-별도 DLL·폰트 번들은 로컬 교체용입니다. `build-references.json`은 실제 참조 버전·해시, `windows-plugin-build.json`은 패키지 버전·크기·해시와 plugin·fontBundle의 해시를 기록합니다. `SHA256SUMS.txt`에는 ZIP 한 개의 SHA-256만 기록합니다. GitHub Release에는 ZIP과 `SHA256SUMS.txt`만 첨부합니다. 다른 버전을 패키징해도 이전 버전 폴더는 유지됩니다.
+## 생성 파일과 패키지
 
-DLL만 필요하면 `build.ps1`을 실행합니다. 패키징의 `-GameRoot`·`-RefsRoot`·`-WorkRoot`·`-DotNetPath`는 내부 빌드에 전달하며, `-OutputRoot`는 릴리즈 폴더를 지정합니다. 내부 빌드 결과는 기본 `dist/`에 보관합니다. 경로 옵션은 [개발 문서](development.md#dll-빌드)에 있습니다.
-
-`-Version 3.0.0` 또는 `-Tag v3.0.0`으로 버전을 선택할 수 있으며 두 값은 `VERSION`과 같아야 합니다. 사용자 지정 릴리즈 폴더에서 업로드할 때는 업로더의 `-AssetRoot`에 같은 경로를 지정하세요.
-
-## 4. GitHub Release에 업로드
-
-### 준비와 계획 확인
-
-[GitHub CLI](https://cli.github.com/)를 설치하고 저장소에 쓰기 권한이 있는 계정으로 최초 한 번 `gh auth login`을 실행합니다. 게시 대상 저장소는 Git의 `origin`에서 읽습니다. 미커밋 변경이 없는 최종 HEAD를 먼저 push하고 패키징한 뒤 실행하세요.
+기본 릴리스 디렉터리는 `dist/release/vX.Y.Z/`입니다. 게시하지 않고 로컬 패키지만 만들 때도 같은 서명 키가 필요합니다.
 
 ```powershell
-.\scripts\upload-release.ps1 -Preview | Format-List
-.\scripts\upload-release.ps1
+.\scripts\package-release.ps1 -Version 3.0.0
 ```
 
-업로더는 기존 ZIP과 체크섬을 사용합니다. `-Preview`는 GitHub 호출과 파일 변경 없이 로컬 계획을 출력하므로 원격 Release 상태는 실제 업로드에서 확인합니다. `Notes`는 본문의 출처, `NotesContent`는 전체 본문입니다.
+기본 패키징은 버전을 이력에서 계산하고 항상 최신 소스를 빌드합니다. `-Version` 또는 `-Tag`를 지정할 수 있으며 둘 다 지정하면 일치해야 합니다. DLL 이름·제품 버전·필수 소스와 출력 디렉터리를 검사하고, 임시 디렉터리에서 모든 패키지·서명 검증을 완료한 뒤 결과를 복사합니다. 빌드·ZIP·서명 생성 실패는 기존 릴리스 산출물을 교체하지 않습니다. 다른 버전의 폴더는 유지합니다.
 
-```powershell
-.\scripts\upload-release.ps1 -Preview | Select-Object -ExpandProperty NotesContent
-```
+GitHub에 게시하는 다섯 파일:
 
-| 옵션 | 동작 |
+| 파일 | 내용 |
 | --- | --- |
-| `-Tag` | 기본 `VERSION`의 `vX.Y.Z`; 지정할 때도 같은 버전이어야 함 |
-| `-AssetRoot` | ZIP과 체크섬이 있는 폴더; 기본 `dist/release/<태그>` |
-| `-NotesFile` | 지정한 설명 파일; 없으면 중단 |
-| `-Draft` | 새 Release와 기존 draft를 공개하지 않음 |
-| `-Preview` | 로컬 계획과 전체 본문 출력 |
+| `AstralPartyKoreanPlugin-vX.Y.Z.zip` | DLL과 폰트 번들만 포함한 플러그인 업데이트 ZIP |
+| `AstralPartyKoreanPlugin-vX.Y.Z-full.zip` | 고정 BepInEx·설정·플러그인·라이선스·오프라인 설치 스크립트 |
+| `update.json` | 플러그인 ZIP과 두 파일의 크기·SHA-256, 버전, 최소 BepInEx 버전 |
+| `update.json.sig` | 정확한 JSON 바이트의 ECDSA P-256 / SHA-256 서명; IEEE P1363 64바이트를 ASCII base64로 저장 |
+| `SHA256SUMS.txt` | 플러그인 ZIP, 전체 ZIP, `update.json`의 소문자 SHA-256 세 줄 |
 
-설명은 명시한 `-NotesFile`, 현재 태그의 준비 파일 `.work/releases/<태그>/release-notes.md`, Git 이력 자동 생성 순으로 선택합니다. 이력 생성은 시작 시 확정한 HEAD에서 도달 가능한 태그 중 현재 버전보다 낮은 최고 `vX.Y.Z` 이후의 커밋을 사용합니다. 이전 태그가 없으면 전체 이력을 사용하고, 현재 버전의 태그와 병합 커밋은 제외합니다.
+플러그인 ZIP에는 아래 두 파일만 있습니다.
 
-이력 생성에는 전체 Git 기록과 릴리즈 태그가 필요합니다. shallow clone에서도 명시한 파일이나 준비된 파일을 사용하면 이력 생성은 필요하지 않습니다. 본문은 읽거나 생성한 뒤 고정하며 새 Release에는 UTF-8 스냅샷을 `--notes-file`로 전달합니다. GitHub의 `--generate-notes`는 사용하지 않습니다.
+```text
+BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll
+BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle
+```
 
-### 게시와 재시도
+전체 ZIP은 게임 실행 파일이 있는 폴더 구조입니다. 고정 BepInEx ZIP의 모든 항목에 위 두 파일과 아래 항목을 추가합니다. 설치 EXE는 만들지 않습니다.
 
-새 Release는 draft로 만들고 두 첨부 파일이 모두 준비되면 공개합니다. draft로 유지하려면 `-Draft`를 지정하세요. 이미 공개된 Release의 공개 상태는 유지합니다.
+```text
+BepInEx/config/BepInEx.cfg       # [Logging] UnityLogListening = false, [Logging.Console] Enabled = false
+LICENSE-BepInEx.txt
+install.bat
+install.ps1
+```
 
-기존 Release에는 누락된 파일만 추가하며 설명은 덮어쓰지 않습니다. 같은 이름의 원격·로컬 파일은 SHA-256이 같으면 건너뛰고 다르면 중단합니다. 기존 태그가 다른 소스 커밋을 가리켜도 중단합니다.
+BepInEx는 `6.0.0-be.788+5b766a3` Unity IL2CPP Windows x64로 고정합니다. `.work/bepinex/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788+5b766a3.zip` 캐시를 사용하고 없을 때만 [고정 URL](https://builds.bepinex.dev/projects/bepinex_be/788/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788%2B5b766a3.zip)에서 받습니다. 캐시와 다운로드 모두 **34,336,405바이트**, SHA-256 `f4cc496bd098a0df4164b81e3737297707f13a47c2478dba2f60eefab784817a`를 검사합니다. 손상된 캐시는 자동으로 신뢰하거나 교체하지 않고 중단합니다. 설치 스크립트는 네트워크 없이 패키지 내용만 사용합니다.
 
-중간에 실패하면 같은 HEAD와 로컬 파일을 유지한 채 같은 명령을 다시 실행하세요. 동일 파일은 건너뛰고 나머지만 업로드합니다. 계속 draft로 유지하려면 재시도에도 `-Draft`를 지정합니다.
+`update.json`은 UTF-8 BOM 없이 저장하고 `schemaVersion: 1`, `minimumBepInEx: "6.0.0-be.788"`을 사용합니다. URL은 해당 태그의 플러그인 ZIP을 가리킵니다. 플러그인은 최신 Release의 `/releases/latest/download/update.json`과 `.sig`를 받아 내장 공개 키로 검증한 뒤 ZIP과 각 파일을 검증합니다. 플러그인 버전과 번역 팩의 번호·게시 주기는 별개입니다.
 
-### 수동 업로드
+DLL·폰트 번들·`build-references.json`·`windows-plugin-build.json`은 로컬 확인용으로 함께 남지만 업로드하지 않습니다. ZIP의 timestamp를 고정해 같은 입력은 같은 ZIP digest를 만들지만 ECDSA 서명은 다시 생성할 때 달라질 수 있습니다. 이미 업로드를 시작했다면 패키지를 다시 만들지 마세요.
 
-[새 Release 작성 화면](https://github.com/maynut02/astral-party-korean-plugin/releases/new)에서도 게시할 수 있습니다. 태그와 제목은 `vX.Y.Z`, 태그 대상은 먼저 push한 빌드 소스 커밋으로 지정합니다. 준비한 설명이나 Preview의 `NotesContent`를 붙여넣고 ZIP·`SHA256SUMS.txt`를 첨부한 뒤 공개하세요. 이미 만든 태그의 대상은 바꾸지 않습니다.
+## 실패 후 안전하게 다시 업로드
 
-버전 준비·빌드·패키징은 커밋·Git 태그 생성·push·GitHub 게시를 수행하지 않습니다. GitHub Release의 생성·업로드·공개는 `upload-release.ps1`이 담당합니다. 다음 릴리즈 전에는 `git fetch origin --tags`로 태그를 갱신하세요.
+인증·저장소·태그 오류는 모든 원격 쓰기를 막습니다. 기존 Release의 설명은 바꾸지 않고 누락된 첨부 파일만 추가합니다. 같은 이름의 원격 파일은 digest가 같을 때만 건너뜁니다. digest가 없으면 내려받아 SHA-256을 비교합니다. 다르면 중단하며 공개된 파일을 교체하는 `--clobber`는 사용하지 않습니다. 기존 태그가 다른 커밋을 가리키는 경우도 중단합니다.
+
+태그 push 또는 업로드 도중 실패했다면 **같은 HEAD와 이미 서명한 로컬 파일**을 유지하고 다음 명령으로 재시도하세요. 새 버전을 자동 계산하는 `release.ps1`을 다시 실행해 다음 버전을 만드는 대신 정확한 태그를 지정합니다.
+
+```powershell
+.\scripts\upload-release.ps1 -Tag v3.0.0 -CreateTag
+# 사용자 지정 패키지 경로를 썼다면 -AssetRoot도 지정
+```
+
+`-CreateTag`는 일치하는 annotated local tag를 재사용하고 아직 없을 때만 만듭니다. `-Draft`는 draft를 공개하지 않고 유지합니다. `-Preview`는 이미 생성된 로컬 파일을 검증하고 업로드 계획·본문만 표시합니다. 본문은 `-NotesFile`, `.work/releases/<태그>/release-notes.md`, Git 이력 순으로 선택합니다. 생성 본문에는 이전 릴리스 이후 커밋 제목·7자리 SHA와 설치·업데이트 안내가 포함됩니다. 업로드할 파일과 본문은 임시 스냅샷으로 고정하며 기존 파일을 덮어쓰지 않습니다.

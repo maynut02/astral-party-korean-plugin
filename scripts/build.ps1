@@ -12,9 +12,8 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 $pluginRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 . (Join-Path $PSScriptRoot 'project-version.ps1')
-$currentVersion = Get-AstralProjectVersion -Root $pluginRoot
-if ($Version -and (ConvertTo-AstralVersion $Version) -cne $currentVersion) { throw 'Build Version must match the VERSION file. Run scripts/prepare-release.ps1 first.' }
-$Version = $currentVersion
+if ($Version) { $Version = ConvertTo-AstralVersion $Version }
+else { $Version = (Get-AstralVersionPlan -Root $pluginRoot -Development).Version }
 if (-not $WorkRoot) { $WorkRoot = Join-Path $pluginRoot '.work' }
 if (-not $OutputRoot) { $OutputRoot = Join-Path $pluginRoot 'dist' }
 $work = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($WorkRoot)
@@ -40,7 +39,7 @@ try {
     foreach ($project in $projects) {
         & $DotNetPath build (Join-Path $pluginRoot $project) --configuration Release --nologo `
             "-p:AstralRefsRoot=$RefsRoot" `
-            "-p:Version=$Version" -p:ContinuousIntegrationBuild=true
+            "-p:AstralPluginVersion=$Version" -p:ContinuousIntegrationBuild=true
         if ($LASTEXITCODE -ne 0) { throw "dotnet build failed: $project" }
     }
 }
@@ -52,7 +51,7 @@ $outputs = foreach ($project in $projects) {
     $dll = Join-Path (Split-Path -Parent $projectPath) "bin/Release/net6.0/$assembly.dll"
     if (-not (Test-Path -LiteralPath $dll -PathType Leaf)) { throw "Build output is missing: $dll" }
     if ([Reflection.AssemblyName]::GetAssemblyName($dll).Name -cne $assembly -or [Diagnostics.FileVersionInfo]::GetVersionInfo($dll).ProductVersion -cne $Version) {
-        throw "Built DLL identity or version does not match VERSION: $dll"
+        throw "Built DLL identity or version does not match the requested build version: $dll"
     }
     $dll
 }

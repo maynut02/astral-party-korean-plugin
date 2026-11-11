@@ -9,7 +9,9 @@ $git = Get-Command git -CommandType Application -ErrorAction Stop | Select-Objec
 $utf8 = [Text.UTF8Encoding]::new($false)
 $tag = 'v0.0.1'
 $zipName = "AstralPartyKoreanPlugin-$tag.zip"
-$assetNames = @($zipName, 'SHA256SUMS.txt')
+$assetNames = @($zipName, "AstralPartyKoreanPlugin-$tag-full.zip", 'update.json', 'update.json.sig', 'SHA256SUMS.txt')
+. (Join-Path $repoRoot 'scripts/package-files.ps1')
+. (Join-Path $repoRoot 'scripts/release-notes.ps1')
 $dllEntry = @(
     'BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle'
     'BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll'
@@ -181,7 +183,7 @@ if ($arguments[0] -ceq 'release' -and $arguments[2] -ceq $state.TagName) {
         'download' {
             if ($state.Errors.Download) { Write-MockFailure $state.Errors.Download; return }
             $name = Get-MockOption '--pattern'
-            if ($name -cnotin @($state.ZipName, 'SHA256SUMS.txt')) { Write-MockFailure 'Mock rejected download pattern.'; return }
+            if ($name -cnotin @($state.AssetNames)) { Write-MockFailure 'Mock rejected download pattern.'; return }
             $destination = Get-MockOption '--dir'
             [IO.Directory]::CreateDirectory($destination) | Out-Null
             $path = Join-Path $destination $name
@@ -233,13 +235,25 @@ function Assert-CommitNotes([string]$Notes, [object[]]$Commits) {
     }
 }
 function Invoke-TestGit([string]$Root, [string[]]$Arguments) {
-    $output = @(& $git -C $Root @Arguments 2>&1)
+    $savedEncoding = [Console]::OutputEncoding
+    try {
+        [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+        $output = @(& $git -C $Root @Arguments 2>&1)
+    } finally { [Console]::OutputEncoding = $savedEncoding }
     if ($LASTEXITCODE -ne 0) { throw "Fixture Git failed: $($output -join "`n")" }
     return ($output -join "`n")
 }
 function Write-Checksum($Fixture) {
-    $hash = (Get-FileHash -LiteralPath (Join-Path $Fixture.Assets $zipName) -Algorithm SHA256).Hash.ToLowerInvariant()
-    [IO.File]::WriteAllText((Join-Path $Fixture.Assets 'SHA256SUMS.txt'), "$hash  $zipName`n", $utf8)
+    $sources = [ordered]@{}
+    $sourceRoot = Join-Path $Fixture.Root '.work/manifest-input'
+    [IO.Directory]::CreateDirectory($sourceRoot) | Out-Null
+    foreach ($entry in $dllEntry) {
+        $path = Join-Path $sourceRoot ([IO.Path]::GetFileName($entry))
+        [IO.File]::WriteAllText($path, 'fixture DLL contents; upload never inspects assembly metadata', $utf8)
+        $sources[$entry] = $path
+    }
+    Copy-Item -LiteralPath (Join-Path $Fixture.Assets $zipName) -Destination (Join-Path $Fixture.Assets "AstralPartyKoreanPlugin-$tag-full.zip") -Force
+    New-AstralUpdateManifest -Version '0.0.1' -Repository 'owner/repo' -OutputRoot $Fixture.Assets -Files $sources -SigningKeyPath $Fixture.KeyPath -PublicKey $Fixture.PublicKey
 }
 function Write-TestZip($Fixture, [string[]]$Entries = $dllEntry) {
     $path = Join-Path $Fixture.Assets $zipName
@@ -267,9 +281,15 @@ function New-Fixture {
     $stateRoot = Join-Path $root '.work/gh'
     $assets = Join-Path $root "dist/release/$tag"
     foreach ($path in @($scripts, $bin, $stateRoot, $assets)) { [IO.Directory]::CreateDirectory($path) | Out-Null }
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts/upload-release.ps1'), (Join-Path $repoRoot 'scripts/project-version.ps1'), (Join-Path $repoRoot 'scripts/release-notes.ps1'), (Join-Path $repoRoot 'scripts/prepare-release.ps1') -Destination $scripts
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts/upload-release.ps1'), (Join-Path $repoRoot 'scripts/project-version.ps1'), (Join-Path $repoRoot 'scripts/release-notes.ps1'), (Join-Path $repoRoot 'scripts/package-files.ps1') -Destination $scripts
     [IO.File]::WriteAllText((Join-Path $scripts 'build.ps1'), "throw 'Upload must never invoke build.ps1.'", $utf8)
-    [IO.File]::WriteAllText((Join-Path $root 'VERSION'), "0.0.1`n", $utf8)
+    $key = [Security.Cryptography.ECDsa]::Create([Security.Cryptography.ECCurve+NamedCurves]::nistP256)
+    try {
+        $publicKey = [Convert]::ToBase64String($key.ExportSubjectPublicKeyInfo())
+        $keyPath = Join-Path $stateRoot 'signing.pem'
+        [IO.File]::WriteAllText($keyPath, [string]::new([Security.Cryptography.PemEncoding]::Write('PRIVATE KEY', $key.ExportPkcs8PrivateKey())), $utf8)
+    } finally { $key.Dispose() }
+    [IO.File]::AppendAllText((Join-Path $scripts 'package-files.ps1'), "`nfunction Get-AstralUpdatePublicKey { return '$publicKey' }`n", $utf8)
     [IO.File]::WriteAllText((Join-Path $root 'source.txt'), "committed fixture source`n", $utf8)
     [IO.File]::WriteAllText((Join-Path $root '.gitignore'), ".work/`ndist/`n", $utf8)
     [IO.File]::WriteAllText((Join-Path $bin 'gh.ps1'), $ghStub, $utf8)
@@ -278,8 +298,9 @@ function New-Fixture {
     Invoke-TestGit $root @('config', 'user.email', 'upload-tests@example.invalid') | Out-Null
     Invoke-TestGit $root @('config', 'core.autocrlf', 'false') | Out-Null
     Invoke-TestGit $root @('config', 'commit.gpgsign', 'false') | Out-Null
+    Invoke-TestGit $root @('config', 'tag.gpgsign', 'false') | Out-Null
     Invoke-TestGit $root @('config', 'core.hooksPath', '.work/disabled-hooks') | Out-Null
-    Invoke-TestGit $root @('add', '--', 'VERSION', 'source.txt', '.gitignore', 'scripts') | Out-Null
+    Invoke-TestGit $root @('add', '--', 'source.txt', '.gitignore', 'scripts') | Out-Null
     Invoke-TestGit $root @('commit', '-m', 'Fixture source and release scripts') | Out-Null
     Invoke-TestGit $root @('remote', 'add', 'origin', 'https://github.com/owner/repo.git') | Out-Null
     $fixture = [pscustomobject]@{
@@ -287,6 +308,7 @@ function New-Fixture {
         Mock = (Join-Path $bin 'gh.ps1'); Assets = $assets
         StatePath = (Join-Path $stateRoot 'state.json'); CallsPath = (Join-Path $stateRoot 'calls.jsonl')
         Head = (Invoke-TestGit $root @('rev-parse', '--verify', 'HEAD^{commit}'))
+        KeyPath = $keyPath; PublicKey = $publicKey
     }
     Write-TestZip $fixture
     # Packaging may leave a standalone DLL locally. It must never be uploaded.
@@ -294,7 +316,7 @@ function New-Fixture {
     [IO.File]::WriteAllText($fixture.CallsPath, '', $utf8)
     Save-State $fixture @{
         Repository = 'owner/repo'; FullName = 'owner/repo'; PushPermission = $true
-        Head = $fixture.Head; RemoteCommitSha = $fixture.Head; TagName = $tag; ZipName = $zipName
+        Head = $fixture.Head; RemoteCommitSha = $fixture.Head; TagName = $tag; ZipName = $zipName; AssetNames = $assetNames
         AssetRoot = $assets; Tag = $null; AnnotatedTags = @{}; Releases = @()
         Errors = @{}; DownloadDifferent = @(); PartialUploadFailure = $false; MutateSourceOnReleaseList = $false
         MutateNotesOnReleaseList = ''; ReplacementNotes = ''
@@ -311,7 +333,7 @@ function Sync-FixtureHead($Fixture) {
 }
 function Add-FixtureCommit($Fixture, [string]$Message) {
     [IO.File]::AppendAllText((Join-Path $Fixture.Root 'source.txt'), ([Guid]::NewGuid().ToString('N') + "`n"), $utf8)
-    Invoke-TestGit $Fixture.Root @('add', '--', 'source.txt', 'VERSION') | Out-Null
+    Invoke-TestGit $Fixture.Root @('add', '--', 'source.txt') | Out-Null
     Invoke-TestGit $Fixture.Root @('commit', '-m', $Message) | Out-Null
     Sync-FixtureHead $Fixture
     return [pscustomobject]@{ Subject = ($Message -split "`r?`n", 2)[0]; Sha = $Fixture.Head }
@@ -349,6 +371,7 @@ function Invoke-FixtureUpload($Fixture, [hashtable]$Arguments = @{}) {
         # Fail before invoking production code if command lookup could call real gh.
         $resolved = Get-Command gh -CommandType Application, ExternalScript -ErrorAction Stop | Select-Object -First 1
         Assert-True ($resolved.CommandType -eq 'ExternalScript' -and $resolved.Source -ieq $Fixture.Mock) 'Unsafe gh lookup: fixture gh.ps1 must precede any actual GitHub CLI.'
+        if (-not $Arguments.ContainsKey('Tag')) { $Arguments.Tag = $tag }
         & $Fixture.Script @Arguments
     } finally { $env:PATH = $savedPath }
 }
@@ -489,7 +512,7 @@ try {
         $list = @($calls | Where-Object { $_.Arguments[1] -ceq 'repos/owner/repo/releases?per_page=100' })[0]
         Assert-True ($list.Arguments -ccontains '--paginate' -and $list.Arguments -ccontains '--slurp') 'Release listing did not request nested pages.'
         $state = Get-State $f
-        Assert-True (-not $state.Releases[0].draft -and $state.Releases[0].assets.Count -eq 2) 'Fresh release was not published with exactly two assets.'
+        Assert-True (-not $state.Releases[0].draft -and $state.Releases[0].assets.Count -eq $assetNames.Count) 'Fresh release was not published with all five assets.'
         Assert-True ((Get-AssetFingerprint $f) -ceq $before) 'Successful upload changed local release assets.'
         Assert-True ((Invoke-TestGit $f.Root @('status', '--porcelain')) -eq '') 'Upload changed source.'
         Assert-SnapshotsCleaned $f
@@ -575,7 +598,6 @@ try {
 
     Test-Case 'fallback-uses-highest-lower-reachable-canonical-tag-and-excludes-current-tag' {
         $f = New-Fixture
-        [IO.File]::WriteAllText((Join-Path $f.Root 'VERSION'), "1.0.9`n", $utf8)
         Add-FixtureCommit $f 'chore: 1.0.9 릴리즈 준비' | Out-Null
         Invoke-TestGit $f.Root @('tag', 'v1.0.9') | Out-Null
         Add-FixtureCommit $f 'feat: 이전 릴리즈에 포함된 변경' | Out-Null
@@ -587,21 +609,14 @@ try {
         Invoke-TestGit $f.Root @('tag', 'v1.0.19') | Out-Null
         Invoke-TestGit $f.Root @('checkout', 'main') | Out-Null
         $expected = @(Add-FixtureCommit $f 'docs: 새 설치 안내')
-        [IO.File]::WriteAllText((Join-Path $f.Root 'VERSION'), "1.0.20`n", $utf8)
         $expected += Add-FixtureCommit $f 'fix: 이번 릴리즈 수정'
         Invoke-TestGit $f.Root @('tag', 'v1.0.20') | Out-Null
         # Put ignored tags on HEAD: selecting one would empty the notes range.
         foreach ($ignored in @('v01.0.19', 'v1.0.19-rc.1', 'v9.0.0')) {
             Invoke-TestGit $f.Root @('tag', $ignored) | Out-Null
         }
-        $assets = Join-Path $f.Root '.work/range-assets'
-        [IO.Directory]::CreateDirectory($assets) | Out-Null
-        $name = 'AstralPartyKoreanPlugin-v1.0.20.zip'
-        Copy-Item -LiteralPath (Join-Path $f.Assets $zipName) -Destination (Join-Path $assets $name)
-        $hash = (Get-FileHash -LiteralPath (Join-Path $assets $name) -Algorithm SHA256).Hash.ToLowerInvariant()
-        [IO.File]::WriteAllText((Join-Path $assets 'SHA256SUMS.txt'), "$hash  $name`n", $utf8)
         $before = Get-FixtureFingerprint $f
-        $result = Invoke-FixtureUpload $f @{ Preview = $true; AssetRoot = $assets }
+        $result = Invoke-FixtureUpload $f @{ Preview = $true; Preflight = $true; Tag = 'v1.0.20' }
         Assert-True ($result.Tag -ceq 'v1.0.20' -and $result.SourceCommit -ceq $f.Head -and $result.Notes -ceq 'Git commit history') 'Fallback preview lost its fixed source/version.'
         Assert-CommitNotes $result.NotesContent $expected
         Assert-InstallationNotes $result.NotesContent 'v1.0.20'
@@ -626,15 +641,13 @@ try {
         Assert-True ((Get-FixtureFingerprint $f) -ceq $before) 'Merged-history preview changed fixture files.'
     }
 
-    Test-Case 'prepare-and-upload-fallback-produce-identical-complete-markdown' {
+    Test-Case 'shared-notes-and-upload-fallback-produce-identical-complete-markdown' {
         $f = New-Fixture
         Add-FixtureCommit $f 'feat: 같은 한글 릴리즈 본문 🎉' | Out-Null
         Add-FixtureCommit $f 'docs: 설치 정보 보강' | Out-Null
-        $result = & (Join-Path $f.Root 'scripts/prepare-release.ps1') -RepositoryRoot $f.Root
-        $expected = [IO.File]::ReadAllText($result.NotesPath, $utf8)
+        $log = Invoke-TestGit $f.Root @('-c', 'i18n.logOutputEncoding=utf-8', 'log', '--no-merges', '--reverse', '-z', '--format=%H%x00%B', $f.Head, '--')
+        $expected = New-AstralReleaseNotes -Tag $tag -Commits @(ConvertFrom-AstralCommitLog $log)
         Assert-InstallationNotes $expected
-        # Remove only ignored fixture output to force the independent Git fallback.
-        Remove-Item -LiteralPath $result.NotesPath
         $before = Get-FixtureFingerprint $f
         $preview = Invoke-FixtureUpload $f @{ Preview = $true }
         Assert-True ($preview.Notes -ceq 'Git commit history' -and $preview.NotesContent -ceq $expected) 'Preparation and upload fallback produced different complete bodies.'
@@ -978,7 +991,7 @@ try {
         Invoke-FixtureUpload $f | Out-Null
         $uploads = @(Get-ReleaseCalls $f 'upload')
         Assert-True ($uploads.Count -eq 2 -and @(Get-ReleaseCalls $f 'create').Count -eq 1) 'Retry recreated the release or repeated the wrong uploads.'
-        Assert-UploadFiles $f $uploads[1] @('SHA256SUMS.txt')
+        Assert-UploadFiles $f $uploads[1] @($assetNames | Where-Object { $_ -cne $zipName })
         Assert-True (@(Get-ReleaseCalls $f 'edit').Count -eq 1 -and -not (Get-State $f).Releases[0].draft) 'Retry did not publish the completed draft once.'
         Assert-True ((Get-AssetFingerprint $f) -ceq $before) 'Retry changed local assets.'
         Assert-SnapshotsCleaned $f
@@ -1002,7 +1015,7 @@ try {
             elseif ($kind -ceq 'extra-dll-line') { $manifest += ('0' * 64) + "  AstralPartyKoreanPlugin.dll`n" }
             else { $manifest = $manifest.Replace($zipName, $zipName.ToLowerInvariant()) }
             [IO.File]::WriteAllText($manifestPath, $manifest, $utf8)
-            Assert-Rejected $f 'Release checksum must match the ZIP and contain only that ZIP'
+            Assert-Rejected $f 'Release checksums must match both ZIPs and update.json'
             Assert-NoCalls $f
         }
     }
@@ -1019,7 +1032,7 @@ try {
                 'missing-plugin-dll' { @($dllEntry[0]) }
             }
             Write-TestZip $f $entries
-            Assert-Rejected $f 'Release ZIP must contain only the plugin DLL and font bundle at their installation paths.'
+            Assert-Rejected $f 'Release ZIP and update manifest must contain exactly the plugin DLL and font bundle.'
             Assert-NoCalls $f
         }
     }
@@ -1033,9 +1046,9 @@ try {
         Assert-NoCalls $f
     }
 
-    Test-Case 'tag-must-match-version-before-gh' {
+    Test-Case 'noncanonical-tag-is-rejected-before-gh' {
         $f = New-Fixture
-        Assert-Rejected $f 'Upload tag must match VERSION' @{ Tag = 'v0.0.2' }
+        Assert-Rejected $f 'canonical vX.Y.Z' @{ Tag = 'v01.0.2' }
         Assert-NoCalls $f
     }
 
@@ -1075,6 +1088,57 @@ try {
             Assert-Rejected $f 'origin must identify a github.com repository using HTTPS or SSH'
             Assert-NoCalls $f
         }
+    }
+
+    Test-Case 'remote-preflight-needs-no-assets-and-makes-no-release-writes' {
+        $f = New-Fixture
+        foreach ($name in $assetNames) { Remove-Item -LiteralPath (Join-Path $f.Assets $name) }
+        $result = Invoke-FixtureUpload $f @{ Preflight = $true }
+        Assert-True ($result.Preflight -and $result.Repository -ceq 'owner/repo') 'Read-only preflight did not identify the release target.'
+        Assert-NoRemoteWrites $f
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $f.Root '.work/upload-release'))) 'Preflight wrote upload snapshots.'
+        Assert-True ((Invoke-TestGit $f.Root @('tag', '--list', $tag)) -eq '') 'Preflight created a tag.'
+    }
+
+    foreach ($probe in @('Auth', 'Repository', 'Tag')) {
+        Test-Case "create-tag-$probe-failure-does-not-create-local-tag" {
+            $f = New-Fixture
+            $state = Get-State $f
+            $state.Errors[$probe] = "Mock $probe preflight failure"
+            Save-State $f $state
+            Assert-Rejected $f "Mock $probe preflight failure" @{ CreateTag = $true }
+            Assert-True ((Invoke-TestGit $f.Root @('tag', '--list', $tag)) -eq '') 'Failed preflight created a local tag.'
+        }
+    }
+
+    Test-Case 'create-tag-waits-until-existing-asset-digests-match' {
+        $f = New-Fixture
+        Set-ExistingRelease $f -Draft $false -Names $assetNames -WithTag
+        $state = Get-State $f
+        $state.Releases[0].assets[0].digest = 'sha256:' + ('0' * 64)
+        Save-State $f $state
+        Assert-Rejected $f 'Existing release asset differs' @{ CreateTag = $true }
+        Assert-True ((Invoke-TestGit $f.Root @('tag', '--list', $tag)) -eq '') 'Digest mismatch created a local tag.'
+    }
+
+    Test-Case 'create-tag-pushes-annotated-head-to-local-origin-before-publication' {
+        $f = New-Fixture
+        $pushRoot = Join-Path $f.Root '.work/tag-origin.git'
+        Invoke-TestGit $f.Root @('init', '--bare', $pushRoot) | Out-Null
+        Invoke-TestGit $f.Root @('remote', 'set-url', '--push', 'origin', $pushRoot) | Out-Null
+        Invoke-FixtureUpload $f @{ CreateTag = $true } | Out-Null
+        Assert-True ((Invoke-TestGit $f.Root @('cat-file', '-t', $tag)) -ceq 'tag') 'Release tag is not annotated.'
+        Assert-True ((Invoke-TestGit $pushRoot @('rev-parse', "$tag^{commit}")) -ceq $f.Head) 'Pushed tag does not point at the built HEAD.'
+        Assert-True (@(Get-ReleaseCalls $f 'edit').Count -eq 1) 'Successful tagged release was not published.'
+        Invoke-FixtureUpload $f @{ CreateTag = $true } | Out-Null
+        Assert-True (@(Get-ReleaseCalls $f 'upload').Count -eq 1) 'Identical retry reuploaded existing assets.'
+    }
+
+    Test-Case 'untrusted-manifest-signature-is-rejected-before-gh' {
+        $f = New-Fixture
+        [IO.File]::WriteAllText((Join-Path $f.Assets 'update.json.sig'), [Convert]::ToBase64String([byte[]]::new(64)), $utf8)
+        Assert-Rejected $f 'signature does not match'
+        Assert-NoCalls $f
     }
 
     Write-Output "Release upload tests passed: $script:passed cases (fixture gh.ps1 only; no GitHub calls)."

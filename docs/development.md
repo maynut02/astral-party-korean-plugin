@@ -4,15 +4,15 @@
 
 ## 준비 사항
 
-- Windows x64, PowerShell 7, Git
+- Windows x64, PowerShell 7.2 이상, Git
 - Astral Party Steam 글로벌판 또는 중국판
 - [README의 설치 안내](../README.md#설치)에 따라 설정하고 한 번 실행한 BepInEx 6 Unity IL2CPP Windows x64
 - 게임 실행으로 생성된 `BepInEx/interop` 참조 DLL
 - Python과 `pytest`; CI에서는 Python 3.12 사용
 
-프로젝트는 `net6.0`을 대상으로 빌드합니다. SDK는 `global.json`의 `6.0.428`과 `latestPatch` 정책을 사용합니다. BepInEx 참조의 특정 버전은 고정하지 않고 설치된 게임의 `core`·`interop` DLL을 사용합니다.
+프로젝트는 `net6.0`을 대상으로 빌드합니다. SDK는 `global.json`의 `6.0.428`과 `latestPatch` 정책을 사용합니다. 설치·전체 패키지의 BepInEx는 `6.0.0-be.788+5b766a3`으로 고정하며 빌드 참조는 준비된 게임의 `core`·`interop` DLL을 사용합니다.
 
-환경 준비·빌드·검사는 PowerShell 7에서 실행합니다. 릴리즈 준비·업로드와 공통 릴리즈 설명 helper는 Windows PowerShell 5.1 호환성을 유지합니다.
+환경 준비·빌드·검사·릴리스는 PowerShell 7.2 이상에서 실행합니다. 릴리스 서명은 .NET의 P-256 PKCS#8 가져오기와 IEEE P1363 서명을 사용하므로 Windows PowerShell 5.1에서는 실행하지 않습니다. 사용자용 `installer/install.ps1`은 별도의 오프라인 설치 경로입니다.
 
 ## 개발 환경 초기화
 
@@ -52,6 +52,8 @@ C:\Program Files (x86)\Steam\steamapps\common\Astral Party\8vJXnINT
 
 Release 설정으로 플러그인 DLL 한 개, 커밋된 폰트 번들의 복사본과 참조 기록을 생성합니다. `src/Plugin/AstralPartyKoreanPlugin.csproj`만 빌드하며 도구 프로젝트는 빌드하지 않습니다.
 
+기본 개발 버전은 Git의 마지막 정식 태그 이후 Conventional Commits로 계산한 `<다음 버전>-dev.<커밋 수>`입니다. 태그 바로 위도 `-dev.0`이며 문서 변경만 있으면 다음 patch를 기준으로 하므로 항상 마지막 릴리스보다 높은 prerelease를 사용합니다. 전체 Git 기록과 태그가 필요합니다.
+
 ```text
 dist/
 ├─ AstralPartyKoreanPlugin.dll
@@ -62,7 +64,7 @@ dist/
 
 | 옵션 | 동작 |
 | --- | --- |
-| `-Version` | 생략하면 `VERSION`; 지정할 때도 같은 값이어야 함 |
+| `-Version` | 생략하면 이력에서 계산한 개발 prerelease; 명시하면 해당 SemVer 사용 |
 | `-GameRoot` | 지정한 게임에서 참조 캐시 준비·갱신 |
 | `-RefsRoot` | `core`와 `interop`를 바로 아래에 둔 참조 폴더 사용 |
 | `-WorkRoot` | 로컬 SDK와 참조 캐시의 작업 폴더; 기본 `.work` |
@@ -87,20 +89,25 @@ dist/
 | --- | --- |
 | `global.json` | 로컬 개발과 CI의 SDK 선택 기준 |
 | `Directory.Build.props` | 명시한 `AstralRefsRoot`, 로컬 `.work/refs`, 게임의 `BepInEx` 순으로 참조 경로 선택 |
-| `Directory.Build.targets` | `VERSION` 검증, DLL 버전 설정, `obj`에 `AstralBuildVersion.Value` 생성 |
-| `VERSION` | 제품 버전의 유일한 기준 |
+| `Directory.Build.targets` | `AstralPluginVersion` 검증, DLL 버전 설정, `obj`에 `AstralBuildVersion.Value`와 `.Core` 생성 |
+| Git의 `vX.Y.Z` 태그 | 릴리스 버전의 유일한 기준 |
 
-직접 `dotnet build`를 실행해도 버전 상수가 자동 생성됩니다. `-p:Version`이 `VERSION`과 다르면 빌드를 거부합니다. C#에 제품 버전을 직접 넣거나 생성된 코드를 수정하지 않습니다. 참조 DLL은 제품 빌드 출력에 복사하지 않습니다.
+직접 `dotnet build`할 때는 `-p:AstralPluginVersion=3.0.0-dev.1`처럼 버전을 명시해야 하며 생략하면 명확한 빌드 오류로 중단합니다. `Value`와 InformationalVersion은 prerelease·build metadata를 포함한 전체 SemVer이고, `Core`와 BepInEx 플러그인 메타데이터는 `X.Y.Z`, AssemblyVersion·FileVersion은 `X.Y.Z.0`입니다. C#에 제품 버전을 직접 넣거나 생성된 코드를 수정하지 않습니다. 참조 DLL은 제품 빌드 출력에 복사하지 않습니다.
 
-## 릴리즈 파일 생성
+## 릴리스 생성
+
+최종 소스를 커밋하고 `origin` upstream에 push한 뒤 실행합니다.
 
 ```powershell
-.\scripts\package-release.ps1
+.\scripts\release.ps1 -Preview | Format-List
+.\scripts\release.ps1
 ```
 
-기본 패키징은 최신 소스를 빌드하고 `dist/release/vX.Y.Z/`에 릴리즈 파일을 생성합니다. 선행 빌드는 필요 없으며 빌드가 실패하면 패키징도 중단합니다. `-GameRoot`·`-RefsRoot`·`-WorkRoot`·`-DotNetPath`를 내부 빌드에 전달합니다. 패키징의 `-OutputRoot`는 릴리즈 폴더이며 내부 빌드 결과는 기본 `dist/`에 보관합니다.
+한 명령으로 검사·빌드·두 ZIP 패키징·업데이트 manifest 서명과 검증·annotated tag 생성과 push·GitHub Release 공개를 수행합니다. 버전을 올리기 위한 파일 수정·커밋은 없습니다. 서명 키는 기본 `%USERPROFILE%\.astral-party\plugin-update-signing.pem` 또는 `ASTRAL_UPDATE_SIGNING_KEY`/`-SigningKeyPath`에서 읽으며 플러그인의 신뢰 공개 키와 반드시 일치해야 합니다.
 
-`-Version`과 `-Tag`로 선택한 버전은 `VERSION`과 같아야 합니다. 파일 구성·버전 선택과 업로드는 [릴리즈 문서](releases.md#3-로컬-빌드와-패키징)에 정리되어 있습니다.
+게시하지 않고 패키지만 만들려면 `.\scripts\package-release.ps1 -Version 3.0.0`을 사용합니다. 서명 키가 필요하고 항상 최신 소스를 빌드합니다. `-GameRoot`·`-RefsRoot`·`-WorkRoot`·`-DotNetPath`를 내부 빌드에 전달하고 `-OutputRoot`는 릴리스 폴더를 선택합니다. 내부 빌드 결과는 `dist/`, 기본 릴리스 결과는 `dist/release/vX.Y.Z/`에 보관합니다.
+
+플러그인 전용 ZIP, 고정 BepInEx·설치 스크립트를 포함한 전체 ZIP, `update.json`·서명·체크섬을 만듭니다. BepInEx 캐시는 `.work/bepinex/`를 사용하고 고정 URL에서 최초 한 번 다운로드한 뒤에도 크기·SHA-256을 검증합니다. 테스트는 작은 로컬 ZIP과 임시 키만 사용하며 다운로드하지 않습니다. 옵션·키 보관·재시도·파일 구성은 [릴리스 문서](releases.md)에 정리되어 있습니다.
 
 ## 폰트 번들 수동 재생성
 
@@ -145,13 +152,13 @@ python -m pip install pytest
 .\scripts\check.ps1
 ```
 
-전체 실행기는 공개 파일, SDK·참조, 프로젝트 버전·MSBuild 버전, 패키징, 릴리즈 준비·업로드 검사와 `scripts/test.ps1`의 런타임 회귀 검사를 실행합니다. 런타임 검사만 필요하면 다음 명령을 사용합니다.
+전체 실행기는 공개 파일, SDK·참조, SemVer·MSBuild 버전, 두 ZIP·서명 manifest, 한 명령 릴리스·안전한 업로드 검사와 `scripts/test.ps1`의 오프라인 설치·런타임 회귀 검사를 실행합니다. 런타임·설치 검사만 필요하면 다음 명령을 사용합니다.
 
 ```powershell
 .\scripts\test.ps1
 ```
 
-Python 검사는 게임·Unity 없이 .NET 하네스에서 운영 번역·캐시·경로 판별·구형 설치 정리 로직을 실행합니다. 로컬 ZIP·참조 기록 검사도 해당 산출물이 있을 때 함께 실행합니다.
+Python 검사는 게임·Unity 없이 .NET 하네스에서 운영 번역·캐시·경로 판별·구형 설치 정리 로직을 실행합니다. 패키지 검사는 운영 ZIP·manifest helper로 임시 파일을 만들고 검사하므로 기존 `dist/release/` 산출물에 의존하지 않습니다.
 
 검사는 게임이나 운영 서버에 접속하지 않으며 GitHub 업로드는 테스트용 CLI로 대체합니다. CI에는 게임 참조 DLL을 넣지 않습니다. 배포 전에는 초기화된 실제 게임의 참조로 DLL을 빌드하고 다음을 확인하세요.
 
@@ -165,9 +172,9 @@ Python 검사는 게임·Unity 없이 .NET 하네스에서 운영 번역·캐시
 
 ## 공개 파일과 서식
 
-소스·테스트·스크립트·문서와 `assets/fonts/astralkorean_fonts.bundle`은 공개 저장소에 포함합니다. 게임·Unity·IL2CPP·BepInEx 참조 DLL과 SDK, 로그·자격 증명·개인 개발 기록은 제외합니다. `.work`·`dist`·`bin`·`obj`는 로컬 산출물입니다. `check-public-files.ps1`은 Git의 추적 파일과 무시되지 않은 새 파일을 검사하며 폰트 번들은 허용합니다.
+소스·테스트·스크립트·문서와 폰트 번들·BepInEx 라이선스는 공개 저장소에 포함합니다. 게임·Unity·IL2CPP·BepInEx 참조 DLL과 SDK, 로그·자격 증명·서명 개인 키·개인 개발 기록은 제외합니다. `.work`·`dist`·`bin`·`obj`는 로컬 산출물입니다. `check-public-files.ps1`은 Git의 추적 파일과 무시되지 않은 새 파일을 검사하며 폰트 번들은 허용합니다.
 
-텍스트는 LF와 UTF-8을 사용합니다. C#·PowerShell·Python은 4칸, Markdown·YAML·XML·JSON은 2칸 들여씁니다. Windows PowerShell 5.1에서 한글 릴리즈 설명을 읽도록 `prepare-release.ps1`·`release-notes.ps1`만 UTF-8 BOM을 유지합니다.
+텍스트는 LF와 UTF-8을 사용합니다. C#·PowerShell·Python은 4칸, Markdown·YAML·XML·JSON은 2칸 들여씁니다. 릴리스 도구는 PowerShell 7.2 이상을 사용하며 새 텍스트 파일은 UTF-8 BOM 없이 저장합니다.
 
 ## 커밋 메시지
 

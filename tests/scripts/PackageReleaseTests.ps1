@@ -4,304 +4,171 @@ param([string]$DotNetPath = '')
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
-. (Join-Path $repoRoot 'scripts/project-version.ps1')
+. (Join-Path $repoRoot 'scripts/package-files.ps1')
 . (Join-Path $repoRoot 'scripts/dotnet-sdk.ps1')
 $dotnet = Get-AstralDotnet -Root $repoRoot -WorkRoot (Join-Path $repoRoot '.work') -DotNetPath $DotNetPath
-$version = Get-AstralProjectVersion -Root $repoRoot
-$otherVersion = Get-AstralNextVersion -Version $version -Bump patch
-$tag = "v$version"
-$zipName = "AstralPartyKoreanPlugin-$tag.zip"
-$testParent = [IO.Path]::GetFullPath((Join-Path $repoRoot '.work/package-tests'))
-$testRoot = Join-Path $testParent ([Guid]::NewGuid().ToString('N'))
+$testRoot = Join-Path $repoRoot ('.work/package-tests/' + [Guid]::NewGuid().ToString('N'))
 $utf8 = [Text.UTF8Encoding]::new($false)
+$version = '4.5.6'
+$tag = "v$version"
+$names = @(Get-AstralReleaseAssetNames $tag)
 $passed = 0
+function Assert-True([bool]$Value, [string]$Message) { if (-not $Value) { throw $Message } }
+function Assert-Rejected([scriptblock]$Body, [string]$Message = '') {
+    $failed = $false
+    try { & $Body | Out-Null } catch { if ($Message -and -not $_.Exception.Message.Contains($Message)) { throw }; $failed = $true }
+    Assert-True $failed "Expected rejection: $Message"
+}
+function Test-Case([string]$Name, [scriptblock]$Body) { & $Body; $script:passed++; Write-Output "PASS package: $Name" }
+function Get-Fingerprint([string]$Root) {
+    (@(Get-ChildItem -LiteralPath $Root -File -Force | Sort-Object Name | ForEach-Object { $_.Name + ':' + (Get-FileHash -LiteralPath $_.FullName).Hash }) -join '|')
+}
 try {
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-
-function Invoke-PackageCase([string]$CaseName, [scriptblock]$Test) {
-    & $Test
-    $script:passed++
-    Write-Output "PASS package: $CaseName"
-}
-
-function New-ManagedFixture([string]$Name, [string]$FixtureVersion, [string]$Directory) {
-    [IO.Directory]::CreateDirectory($Directory) | Out-Null
-    [IO.File]::WriteAllText((Join-Path $Directory 'Fixture.csproj'), "<Project Sdk=`"Microsoft.NET.Sdk`"><PropertyGroup><TargetFramework>net6.0</TargetFramework><AssemblyName>$Name</AssemblyName><Version>$FixtureVersion</Version><IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion></PropertyGroup></Project>", $utf8)
-    [IO.File]::WriteAllText((Join-Path $Directory 'Fixture.cs'), 'public static class Fixture { }', $utf8)
-    [IO.File]::WriteAllText((Join-Path $Directory 'NuGet.Config'), '<configuration><packageSources><clear /></packageSources></configuration>', $utf8)
-    $outputRoot = Join-Path $Directory 'bin'
-    $result = @(& $dotnet build (Join-Path $Directory 'Fixture.csproj') --configuration Release --output $outputRoot --nologo 2>&1)
-    if ($LASTEXITCODE -ne 0) { throw "Package fixture build failed: $($result -join "`n")" }
-    return Join-Path $outputRoot "$Name.dll"
-}
-
-$dllNames = @('AstralPartyKoreanPlugin.dll')
-$goodDlls = @{}
-$wrongVersions = @{}
-foreach ($name in $dllNames) {
-    $assemblyName = [IO.Path]::GetFileNameWithoutExtension($name)
-    # Keep .NET 6 MSBuild's intermediate file paths below Windows MAX_PATH.
-    $fixtureName = 'plugin'
-    $goodDlls[$name] = New-ManagedFixture $assemblyName $version (Join-Path $testRoot "assembly/$fixtureName")
-    $wrongVersions[$name] = New-ManagedFixture $assemblyName $otherVersion (Join-Path $testRoot "wrong-version/$fixtureName")
-}
-$wrongIdentity = New-ManagedFixture 'UnrelatedPlugin' $version (Join-Path $testRoot 'wrong-identity')
-$automaticRoot = Join-Path $testRoot 'automatic'
-$automaticScripts = Join-Path $automaticRoot 'scripts'
-$inputRoot = Join-Path $automaticRoot 'build-input'
-[IO.Directory]::CreateDirectory($automaticScripts) | Out-Null
-[IO.Directory]::CreateDirectory($inputRoot) | Out-Null
-Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts/package-release.ps1'), (Join-Path $repoRoot 'scripts/project-version.ps1'), (Join-Path $repoRoot 'scripts/package-files.ps1') -Destination $automaticScripts
-[IO.File]::WriteAllText((Join-Path $automaticRoot 'VERSION'), $version, $utf8)
-foreach ($name in $dllNames) { Copy-Item -LiteralPath $goodDlls[$name] -Destination (Join-Path $inputRoot $name) }
-$fontName = 'astralkorean_fonts.bundle'
-$fontSource = Join-Path $repoRoot "assets/fonts/$fontName"
-Copy-Item -LiteralPath $fontSource -Destination (Join-Path $inputRoot $fontName)
-$goodFiles = @{ $fontName = $fontSource }
-$goodFiles[$dllNames[0]] = $goodDlls[$dllNames[0]]
-$buildStub = @'
-param([string]$Version = '', [string]$GameRoot = 'fixture-default-game', [string]$RefsRoot = '',
-    [string]$WorkRoot = '', [string]$OutputRoot = '', [string]$DotNetPath = '')
-$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$call = @{ Version = $Version; GameRoot = $GameRoot; RefsRoot = $RefsRoot; WorkRoot = $WorkRoot; OutputRoot = $OutputRoot; DotNetPath = $DotNetPath } | ConvertTo-Json -Compress
-[IO.File]::AppendAllText((Join-Path $root 'build-calls.jsonl'), $call + [Environment]::NewLine)
-if (Test-Path -LiteralPath (Join-Path $root 'fail-build')) { throw 'Fixture build failed.' }
-if (-not $OutputRoot) { $OutputRoot = Join-Path $root 'dist' }
-[IO.Directory]::CreateDirectory($OutputRoot) | Out-Null
-foreach ($name in @('AstralPartyKoreanPlugin.dll', 'astralkorean_fonts.bundle')) {
-    if (Test-Path -LiteralPath (Join-Path $root "omit-$name")) {
-        $missingOutput = Join-Path $OutputRoot $name
-        if (Test-Path -LiteralPath $missingOutput) { Remove-Item -LiteralPath $missingOutput }
-        continue
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [IO.Directory]::CreateDirectory($testRoot) | Out-Null
+    $assemblyRoot = Join-Path $testRoot 'assembly'
+    [IO.Directory]::CreateDirectory($assemblyRoot) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $assemblyRoot 'Fixture.csproj'), "<Project Sdk=`"Microsoft.NET.Sdk`"><PropertyGroup><TargetFramework>net6.0</TargetFramework><AssemblyName>AstralPartyKoreanPlugin</AssemblyName><Version>$version</Version><IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion></PropertyGroup></Project>", $utf8)
+    [IO.File]::WriteAllText((Join-Path $assemblyRoot 'Fixture.cs'), 'public static class Fixture { }', $utf8)
+    [IO.File]::WriteAllText((Join-Path $assemblyRoot 'NuGet.Config'), '<configuration><packageSources><clear /></packageSources></configuration>', $utf8)
+    $output = @(& $dotnet build (Join-Path $assemblyRoot 'Fixture.csproj') -c Release --nologo 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "Package fixture build failed: $($output -join "`n")" }
+    $dll = Join-Path $assemblyRoot 'bin/Release/net6.0/AstralPartyKoreanPlugin.dll'
+    $root = Join-Path $testRoot 'fixture'
+    foreach ($directory in @('scripts', 'installer', 'assets/third-party', 'build-input', '.work/bepinex')) { [IO.Directory]::CreateDirectory((Join-Path $root $directory)) | Out-Null }
+    foreach ($name in @('package-release.ps1', 'project-version.ps1', 'release-notes.ps1', 'package-files.ps1')) { Copy-Item -LiteralPath (Join-Path $repoRoot "scripts/$name") -Destination (Join-Path $root "scripts/$name") }
+    Copy-Item -LiteralPath $dll -Destination (Join-Path $root 'build-input/AstralPartyKoreanPlugin.dll')
+    [IO.File]::WriteAllText((Join-Path $root 'build-input/astralkorean_fonts.bundle'), 'UnityFS fixture font bundle', $utf8)
+    [IO.File]::WriteAllText((Join-Path $root 'installer/install.bat'), '@echo off', $utf8)
+    [IO.File]::WriteAllText((Join-Path $root 'installer/install.ps1'), '# Offline installer fixture', $utf8)
+    [IO.File]::WriteAllText((Join-Path $root 'assets/third-party/LICENSE-BepInEx.txt'), 'fixture license', $utf8)
+    $runtime = Join-Path $root '.work/bepinex/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.788+5b766a3.zip'
+    $runtimeFiles = [ordered]@{
+        '.doorstop_version' = [Text.Encoding]::ASCII.GetBytes('4')
+        'BepInEx/core/BepInEx.Core.dll' = [Text.Encoding]::ASCII.GetBytes('runtime fixture')
+        'BepInEx/patchers/' = [byte[]]@()
+        'BepInEx/plugins/' = [byte[]]@()
+        'doorstop_config.ini' = [Text.Encoding]::ASCII.GetBytes('[General]')
+        'dotnet/runtime.dll' = [Text.Encoding]::ASCII.GetBytes('dotnet fixture')
+        'winhttp.dll' = [Text.Encoding]::ASCII.GetBytes('doorstop fixture')
+        'changelog.txt' = [Text.Encoding]::ASCII.GetBytes('fixture changelog')
     }
-    Copy-Item -LiteralPath (Join-Path $root "build-input/$name") -Destination (Join-Path $OutputRoot $name) -Force
-}
+    New-AstralZipPackage -Files $runtimeFiles -OutputRoot ([IO.Path]::GetDirectoryName($runtime)) -ZipName ([IO.Path]::GetFileName($runtime)) | Out-Null
+    $runtimeHash = (Get-FileHash -LiteralPath $runtime).Hash.ToLowerInvariant()
+    $runtimeSize = (Get-Item -LiteralPath $runtime).Length
+    # Network access is forbidden even if a regression tries to fetch the fixture.
+    function Invoke-WebRequest { throw 'Package tests must never access the network.' }
+    Test-Case 'assembly-identity-version-and-presence-are-enforced' {
+        Assert-AstralPluginAssembly -Path $dll -Name 'AstralPartyKoreanPlugin' -Version $version
+        Assert-Rejected { Assert-AstralPluginAssembly -Path $dll -Name 'UnrelatedPlugin' -Version $version } 'Unexpected plugin assembly'
+        Assert-Rejected { Assert-AstralPluginAssembly -Path $dll -Name 'AstralPartyKoreanPlugin' -Version '4.5.7' } 'must match the built DLL version'
+        Assert-Rejected { Assert-AstralPluginAssembly -Path (Join-Path $testRoot 'missing.dll') -Name 'AstralPartyKoreanPlugin' -Version $version } 'Missing plugin DLL'
+    }
+    Test-Case 'pinned-cache-validates-size-and-sha256-without-network' {
+        Assert-True ((Get-AstralBepInExArchive -WorkRoot (Join-Path $root '.work') -ExpectedSha256 $runtimeHash -ExpectedSize $runtimeSize) -ceq $runtime) 'Cache lookup differs.'
+        Assert-Rejected { Get-AstralBepInExArchive -WorkRoot (Join-Path $root '.work') -ExpectedSha256 ('0' * 64) -ExpectedSize $runtimeSize } 'cache size or SHA-256 mismatch'
+        Assert-Rejected { Get-AstralBepInExArchive -WorkRoot (Join-Path $root '.work') -ExpectedSha256 $runtimeHash -ExpectedSize ($runtimeSize + 1) } 'cache size or SHA-256 mismatch'
+        Assert-Rejected { Get-AstralBepInExArchive -WorkRoot (Join-Path $root '.work') } 'cache size or SHA-256 mismatch'
+    }
+    $key = [Security.Cryptography.ECDsa]::Create([Security.Cryptography.ECCurve+NamedCurves]::nistP256)
+    try {
+        $publicKey = [Convert]::ToBase64String($key.ExportSubjectPublicKeyInfo())
+        $keyPath = Join-Path $root '.work/key.pem'
+        [IO.File]::WriteAllText($keyPath, [string]::new([Security.Cryptography.PemEncoding]::Write('PRIVATE KEY', $key.ExportPkcs8PrivateKey())), $utf8)
+    } finally { $key.Dispose() }
+    # Override only the copied fixture's pin and trust key, never production inputs.
+    $overrides = "`nfunction Get-AstralUpdatePublicKey { '$publicKey' }`nfunction Get-AstralBepInExArchive { param([string]`$WorkRoot) '$($runtime.Replace("'", "''"))' }`n"
+    [IO.File]::AppendAllText((Join-Path $root 'scripts/package-files.ps1'), $overrides, $utf8)
+    $buildStub = @'
+param([string]$Version, [string]$GameRoot = 'fixture-default', [string]$RefsRoot, [string]$WorkRoot, [string]$OutputRoot, [string]$DotNetPath)
+$root = Join-Path $PSScriptRoot '..'
+[IO.File]::AppendAllText((Join-Path $root '.work/build-calls.jsonl'), (([ordered]@{ Version = $Version; GameRoot = $GameRoot; RefsRoot = $RefsRoot; WorkRoot = $WorkRoot; OutputRoot = $OutputRoot; DotNetPath = $DotNetPath } | ConvertTo-Json -Compress) + "`n"))
+if (Test-Path (Join-Path $root '.work/fail-build')) { throw 'Fixture build failed.' }
+[IO.Directory]::CreateDirectory($OutputRoot) | Out-Null
+foreach ($name in @('AstralPartyKoreanPlugin.dll', 'astralkorean_fonts.bundle')) { Copy-Item -LiteralPath (Join-Path $root "build-input/$name") -Destination (Join-Path $OutputRoot $name) -Force }
 [IO.File]::WriteAllText((Join-Path $OutputRoot 'build-references.json'), '{"references":[]}', [Text.UTF8Encoding]::new($false))
 '@
-[IO.File]::WriteAllText((Join-Path $automaticScripts 'build.ps1'), $buildStub, $utf8)
-$package = Join-Path $automaticScripts 'package-release.ps1'
-$assets = Join-Path $automaticRoot "dist/release/$tag"
-$buildRoot = Join-Path $automaticRoot 'dist'
-$callsPath = Join-Path $automaticRoot 'build-calls.jsonl'
-$expectedNames = @($dllNames) + @($fontName, 'build-references.json', 'windows-plugin-build.json', $zipName, 'SHA256SUMS.txt')
-$zipEntries = [ordered]@{
-    'BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll' = $dllNames[0]
-    'BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle' = $fontName
-}
-
-function Get-BuildCallCount {
-    if (-not (Test-Path -LiteralPath $callsPath)) { return 0 }
-    return [IO.File]::ReadAllLines($callsPath).Count
-}
-
-function Get-ReleaseHashes([string]$Root) {
-    return (@(Get-ChildItem -LiteralPath $Root -Force | Sort-Object Name | ForEach-Object {
-        $_.Name + ':' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
-    }) -join ',')
-}
-
-function Assert-Rejected([hashtable]$Arguments, [string]$Message) {
-    $failed = $false
-    try { & $package @Arguments | Out-Null } catch {
-        if ($Message -and -not $_.Exception.Message.Contains($Message)) { throw }
-        $failed = $true
+    [IO.File]::WriteAllText((Join-Path $root 'scripts/build.ps1'), $buildStub, $utf8)
+    $package = Join-Path $root 'scripts/package-release.ps1'
+    $arguments = @{ Version = $version; SigningKeyPath = $keyPath; Repository = 'owner/repo' }
+    $assets = Join-Path $root "dist/release/$tag"
+    Test-Case 'fresh-build-produces-both-zips-signed-manifest-and-three-checksums' {
+        & $package @arguments | Out-Null
+        $calls = [IO.File]::ReadAllLines((Join-Path $root '.work/build-calls.jsonl'))
+        Assert-True ($calls.Count -eq 1 -and ($calls[0] | ConvertFrom-Json).Version -ceq $version) 'Packaging did not build exactly once at the release version.'
+        Assert-AstralReleaseAssets -Tag $tag -Repository 'owner/repo' -Root $assets -PublicKey $publicKey | Out-Null
+        Assert-True ([IO.File]::ReadAllLines((Join-Path $assets 'SHA256SUMS.txt')).Count -eq 3) 'Checksum list differs.'
+        $bytes = [IO.File]::ReadAllBytes((Join-Path $assets 'update.json'))
+        Assert-True (-not ($bytes[0] -eq 239 -and $bytes[1] -eq 187 -and $bytes[2] -eq 191)) 'Manifest has a UTF-8 BOM.'
+        $signature = [IO.File]::ReadAllText((Join-Path $assets 'update.json.sig'))
+        Assert-True ([Convert]::FromBase64String($signature).Length -eq 64) 'Signature is not IEEE P1363 P-256.'
+        $manifest = [IO.File]::ReadAllText((Join-Path $assets 'update.json')) | ConvertFrom-Json
+        Assert-True ($manifest.version -ceq $version -and $manifest.minimumBepInEx -ceq '6.0.0-be.788' -and $manifest.files.Count -eq 2) 'Manifest contract differs.'
     }
-    if (-not $failed) { throw 'Invalid release package was accepted.' }
-}
-
-function Assert-PreflightRejected([hashtable]$Arguments, [string]$Message) {
-    $before = Get-BuildCallCount
-    $hashes = Get-ReleaseHashes $assets
-    Assert-Rejected $Arguments $Message
-    if ((Get-BuildCallCount) -ne $before) { throw 'Rejected package settings triggered a build.' }
-    if ((Get-ReleaseHashes $assets) -cne $hashes) { throw 'Preflight rejection changed existing release assets.' }
-}
-
-function Assert-Package([string]$Root = $assets) {
-    $entries = @(Get-ChildItem -LiteralPath $Root -Force)
-    $actualNames = @($entries.Name | Sort-Object)
-    if (@($entries | Where-Object PSIsContainer).Count -gt 0 -or
-        ($actualNames -join ',') -cne (($expectedNames | Sort-Object) -join ',')) {
-        throw 'Release output must contain exactly the six expected files.'
-    }
-    foreach ($name in $goodFiles.Keys) {
-        if ((Get-FileHash -LiteralPath (Join-Path $Root $name)).Hash -cne (Get-FileHash -LiteralPath $goodFiles[$name]).Hash) {
-            throw "Standalone file differs from the fresh build: $name"
-        }
-    }
-    $archive = [IO.Compression.ZipFile]::OpenRead((Join-Path $Root $zipName))
-    try {
-        if ($archive.Entries.Count -ne 2 -or
-            (($archive.Entries.FullName | Sort-Object) -join ',') -cne (($zipEntries.Keys | Sort-Object) -join ',')) {
-            throw 'ZIP must contain only the plugin DLL and font bundle at their installation paths.'
-        }
-        foreach ($entry in $archive.Entries) {
-            $name = $zipEntries[$entry.FullName]
-            $extracted = Join-Path $testRoot "extracted-$name"
-            [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $extracted, $true)
-            if ((Get-FileHash -LiteralPath $extracted).Hash -cne (Get-FileHash -LiteralPath $goodFiles[$name]).Hash) {
-                throw "Packaged file differs from the fresh build: $name"
+    Test-Case 'full-zip-retains-every-runtime-entry-and-adds-offline-installation-layout' {
+        $archive = [IO.Compression.ZipFile]::OpenRead((Join-Path $assets $names[1]))
+        try {
+            $expected = @($runtimeFiles.Keys) + @('BepInEx/config/BepInEx.cfg', 'BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll', 'BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle', 'LICENSE-BepInEx.txt', 'install.bat', 'install.ps1')
+            Assert-True ((($archive.Entries.FullName | Sort-Object) -join '|') -ceq (($expected | Sort-Object) -join '|')) 'Full package entries differ.'
+            foreach ($name in $runtimeFiles.Keys) {
+                $memory = [IO.MemoryStream]::new()
+                $stream = $archive.GetEntry($name).Open()
+                try { $stream.CopyTo($memory); Assert-True ([Convert]::ToBase64String($memory.ToArray()) -ceq [Convert]::ToBase64String($runtimeFiles[$name])) "Runtime bytes changed: $name" }
+                finally { $stream.Dispose(); $memory.Dispose() }
             }
-        }
-    } finally { $archive.Dispose() }
-    $zipPath = Join-Path $Root $zipName
-    $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    $checksums = [IO.File]::ReadAllLines((Join-Path $Root 'SHA256SUMS.txt'))
-    if ($checksums.Count -ne 1 -or $checksums[0] -cne "$zipHash  $zipName") { throw 'ZIP checksum manifest differs.' }
-    $references = [IO.File]::ReadAllText((Join-Path $Root 'build-references.json')) | ConvertFrom-Json
-    $metadata = [IO.File]::ReadAllText((Join-Path $Root 'windows-plugin-build.json')) | ConvertFrom-Json
-    if (@($references.references).Count -ne 0 -or @($metadata.buildReferences).Count -ne 0 -or
-        $metadata.schemaVersion -ne 1 -or $metadata.packageVersion -cne $version -or
-        $metadata.includesBepInExRuntime -isnot [bool] -or $metadata.includesBepInExRuntime -ne $false) {
-        throw 'Build metadata does not describe this plugin-only release and its empty reference fixture.'
+            $reader = [IO.StreamReader]::new($archive.GetEntry('BepInEx/config/BepInEx.cfg').Open())
+            try { Assert-True ($reader.ReadToEnd() -ceq "[Logging]`r`nUnityLogListening = false`r`n[Logging.Console]`r`nEnabled = false`r`n") 'Fresh config differs.' } finally { $reader.Dispose() }
+            foreach ($name in @('LICENSE-BepInEx.txt', 'install.bat', 'install.ps1')) { Assert-True ($archive.GetEntry($name).Length -gt 0) "Missing full-package input: $name" }
+        } finally { $archive.Dispose() }
     }
-    if ($metadata.package.file -cne $zipName -or $metadata.package.sha256 -cne $zipHash -or
-        $metadata.package.size -ne (Get-Item -LiteralPath $zipPath).Length) { throw 'Package metadata differs from the ZIP.' }
-    foreach ($component in @(@{ Name = $dllNames[0]; Metadata = $metadata.plugin }, @{ Name = $fontName; Metadata = $metadata.fontBundle })) {
-        $hash = (Get-FileHash -LiteralPath (Join-Path $Root $component.Name) -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($component.Metadata.sha256 -cne $hash) {
-            throw "File metadata differs: $($component.Name)"
-        }
+    Test-Case 'repackaging-rebuilds-but-zip-digests-are-reproducible' {
+        $before = @($names[0], $names[1]) | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $assets $_)).Hash }
+        & $package @arguments | Out-Null
+        $after = @($names[0], $names[1]) | ForEach-Object { (Get-FileHash -LiteralPath (Join-Path $assets $_)).Hash }
+        Assert-True (($before -join '|') -ceq ($after -join '|')) 'Identical inputs produced different ZIPs.'
+        Assert-True ([IO.File]::ReadAllLines((Join-Path $root '.work/build-calls.jsonl')).Count -eq 2) 'Packaging reused stale binaries.'
     }
-    if ($metadata.plugin.version -cne $version) { throw 'Plugin version differs.' }
-}
-
-Invoke-PackageCase 'default packaging builds once and produces exact two-file ZIP, six assets and verified metadata' {
-    & $package | Out-Null
-    Assert-Package
-    if ((Get-BuildCallCount) -ne 1) { throw 'Default package did not build exactly once.' }
-    $call = [IO.File]::ReadAllLines($callsPath)[0] | ConvertFrom-Json
-    if ($call.Version -cne $version -or $call.OutputRoot -cne $buildRoot -or $call.GameRoot -cne 'fixture-default-game') {
-        throw 'Default package did not pass VERSION and its build output or retain the build default game root.'
+    Test-Case 'build-options-are-forwarded-and-custom-output-is-supported' {
+        $custom = Join-Path $root 'custom-release'
+        & $package @arguments -Tag $tag -GameRoot 'D:\Game Path' -RefsRoot 'D:\Refs Path' -DotNetPath 'D:\SDK Path\dotnet.exe' -OutputRoot $custom | Out-Null
+        $call = [IO.File]::ReadAllLines((Join-Path $root '.work/build-calls.jsonl'))[-1] | ConvertFrom-Json
+        Assert-True ($call.GameRoot -ceq 'D:\Game Path' -and $call.RefsRoot -ceq 'D:\Refs Path' -and $call.DotNetPath -ceq 'D:\SDK Path\dotnet.exe') 'Package lost explicit build paths.'
+        Assert-AstralReleaseAssets -Tag $tag -Repository 'owner/repo' -Root $custom -PublicKey $publicKey | Out-Null
     }
-}
-Invoke-PackageCase 'repeated default packaging rebuilds stale files and replaces obsolete ZIP entries' {
-    foreach ($name in $goodFiles.Keys) { [IO.File]::WriteAllText((Join-Path $buildRoot $name), 'stale file', $utf8) }
-    $archive = [IO.Compression.ZipFile]::Open((Join-Path $assets $zipName), [IO.Compression.ZipArchiveMode]::Update)
-    try { $archive.CreateEntry('obsolete.txt') | Out-Null } finally { $archive.Dispose() }
-    & $package | Out-Null
-    Assert-Package
-    if ((Get-BuildCallCount) -ne 2) { throw 'Repeated package reused existing build outputs.' }
-}
-Invoke-PackageCase 'GameRoot, RefsRoot, WorkRoot and DotNetPath reach the build intact' {
-    $paths = @{ GameRoot = 'D:\Steam Library\Astral Party\8vJXnINT'; RefsRoot = 'D:\Build References\BepInEx'; WorkRoot = 'D:\Package Work\SDK and References'; DotNetPath = 'D:\Dotnet SDK\dotnet.exe' }
-    & $package @paths | Out-Null
-    Assert-Package
-    $call = [IO.File]::ReadAllLines($callsPath)[-1] | ConvertFrom-Json
-    foreach ($key in $paths.Keys) { if ($call.$key -cne $paths[$key]) { throw "Package did not forward $key." } }
-    if ((Get-BuildCallCount) -ne 3 -or $call.Version -cne $version -or $call.OutputRoot -cne $buildRoot) { throw 'Forwarded build lost version/output arguments.' }
-}
-Invoke-PackageCase 'matching canonical Version and Tag are accepted with a custom output directory' {
-    $custom = Join-Path $automaticRoot 'custom-release'
-    & $package -Version $version -Tag $tag -OutputRoot $custom | Out-Null
-    Assert-Package $custom
-    if ((Get-BuildCallCount) -ne 4) { throw 'Explicit version/tag skipped the fresh build.' }
-}
-foreach ($invalidTag in @('v01.0.0', '1.0.0', 'v1.0.0-rc.1')) {
-    Invoke-PackageCase "noncanonical Tag rejected before build: $invalidTag" {
-        Assert-PreflightRejected @{ Tag = $invalidTag } 'canonical vX.Y.Z'
+    Test-Case 'invalid-options-and-unexpected-output-stop-before-build' {
+        $before = [IO.File]::ReadAllLines((Join-Path $root '.work/build-calls.jsonl')).Count
+        Assert-Rejected { & $package @arguments -Tag 'v9.0.0' } 'Version and Tag must match'
+        Assert-Rejected { & $package -Version '1.2.3-rc.1' -SigningKeyPath $keyPath } 'canonical X.Y.Z'
+        [IO.File]::WriteAllText((Join-Path $assets 'unrelated.txt'), 'keep', $utf8)
+        try { Assert-Rejected { & $package @arguments } 'unexpected file' } finally { Remove-Item -LiteralPath (Join-Path $assets 'unrelated.txt') }
+        Assert-True ([IO.File]::ReadAllLines((Join-Path $root '.work/build-calls.jsonl')).Count -eq $before) 'Invalid settings started a build.'
     }
-}
-foreach ($invalidVersion in @('01.0.0', 'v1.0.0', '1.0.0-rc.1')) {
-    Invoke-PackageCase "noncanonical Version rejected before build: $invalidVersion" {
-        Assert-PreflightRejected @{ Version = $invalidVersion } 'canonical X.Y.Z'
+    Test-Case 'build-failure-and-missing-font-preserve-existing-release' {
+        $before = Get-Fingerprint $assets
+        [IO.File]::WriteAllText((Join-Path $root '.work/fail-build'), '')
+        try { Assert-Rejected { & $package @arguments } 'Fixture build failed' } finally { Remove-Item -LiteralPath (Join-Path $root '.work/fail-build') }
+        Assert-True ((Get-Fingerprint $assets) -ceq $before) 'Build failure changed the existing release.'
+        $font = Join-Path $root 'build-input/astralkorean_fonts.bundle'
+        $fontBytes = [IO.File]::ReadAllBytes($font)
+        Remove-Item -LiteralPath $font
+        try { Assert-Rejected { & $package @arguments } } finally { [IO.File]::WriteAllBytes($font, $fontBytes) }
+        Assert-True ((Get-Fingerprint $assets) -ceq $before) 'Missing font changed existing release assets.'
     }
-}
-Invoke-PackageCase 'canonical Tag inconsistent with VERSION is rejected before build' {
-    Assert-PreflightRejected @{ Tag = "v$otherVersion" } 'must match VERSION when building'
-}
-Invoke-PackageCase 'canonical Version inconsistent with VERSION is rejected before build' {
-    Assert-PreflightRejected @{ Version = $otherVersion } 'must match VERSION when building'
-}
-Invoke-PackageCase 'conflicting Version and Tag are rejected before build' {
-    Assert-PreflightRejected @{ Version = $otherVersion; Tag = $tag } 'Version and Tag must match'
-}
-Invoke-PackageCase 'malformed repository VERSION is rejected before build' {
-    $path = Join-Path $automaticRoot 'VERSION'
-    [IO.File]::WriteAllText($path, '01.0.0', $utf8)
-    try { Assert-PreflightRejected @{} 'canonical X.Y.Z' }
-    finally { [IO.File]::WriteAllText($path, $version, $utf8) }
-}
-Invoke-PackageCase 'unexpected output file is rejected before build and preserved' {
-    $unexpected = Join-Path $assets 'unrelated.txt'
-    [IO.File]::WriteAllText($unexpected, 'preserve', $utf8)
-    try { Assert-PreflightRejected @{} 'unexpected file' }
-    finally { Remove-Item -LiteralPath $unexpected }
-}
-Invoke-PackageCase 'unexpected output directory is rejected before build and preserved' {
-    $root = Join-Path $automaticRoot 'unexpected-directory'
-    $child = Join-Path $root 'unrelated'
-    [IO.Directory]::CreateDirectory($child) | Out-Null
-    Assert-PreflightRejected @{ OutputRoot = $root } 'unexpected file'
-    if (-not (Test-Path -LiteralPath $child -PathType Container)) { throw 'Rejected output directory was removed.' }
-}
-foreach ($name in $dllNames) {
-    foreach ($kind in @('identity', 'version', 'missing')) {
-        Invoke-PackageCase "invalid $kind for $name preserves the existing release" {
-            $inputPath = Join-Path $inputRoot $name
-            $omit = Join-Path $automaticRoot "omit-$name"
-            $before = Get-ReleaseHashes $assets
-            $callsBefore = Get-BuildCallCount
-            try {
-                switch ($kind) {
-                    'identity' { Copy-Item -LiteralPath $wrongIdentity -Destination $inputPath -Force }
-                    'version' { Copy-Item -LiteralPath $wrongVersions[$name] -Destination $inputPath -Force }
-                    'missing' { [IO.File]::WriteAllText($omit, '', $utf8) }
-                }
-                $message = switch ($kind) { 'identity' { 'Unexpected plugin assembly' } 'version' { 'must match the built DLL version' } 'missing' { 'Missing plugin DLL' } }
-                Assert-Rejected @{} $message
-                if ((Get-BuildCallCount) -ne $callsBefore + 1 -or (Get-ReleaseHashes $assets) -cne $before) {
-                    throw 'Failed DLL validation skipped the build or changed the existing release.'
-                }
-            } finally {
-                Copy-Item -LiteralPath $goodDlls[$name] -Destination $inputPath -Force
-                if (Test-Path -LiteralPath $omit) { Remove-Item -LiteralPath $omit }
-            }
-        }
+    Test-Case 'wrong-signing-key-and-tampering-are-rejected' {
+        Assert-Rejected { Get-AstralSigningKey -Path $keyPath } 'does not match the trusted'
+        $manifestBytes = [IO.File]::ReadAllBytes((Join-Path $assets 'update.json'))
+        $signature = [IO.File]::ReadAllText((Join-Path $assets 'update.json.sig'))
+        $modified = [byte[]]$manifestBytes.Clone()
+        $modified[0] = $modified[0] -bxor 1
+        Assert-Rejected { Assert-AstralUpdateSignature -Bytes $modified -Signature $signature -PublicKey $publicKey } 'signature does not match'
+        Assert-Rejected { Assert-AstralUpdateSignature -Bytes $manifestBytes -Signature ([Convert]::ToBase64String([byte[]]::new(64))) -PublicKey $publicKey } 'signature does not match'
+        Assert-Rejected { Assert-AstralUpdateSignature -Bytes $manifestBytes -Signature ([Convert]::ToBase64String([byte[]]::new(65))) -PublicKey $publicKey } 'signature does not match'
     }
-}
-Invoke-PackageCase 'missing font bundle preserves every existing release asset' {
-    $before = Get-ReleaseHashes $assets
-    $omit = Join-Path $automaticRoot "omit-$fontName"
-    [IO.File]::WriteAllText($omit, '', $utf8)
-    try {
-        Assert-Rejected @{} ''
-        if ((Get-ReleaseHashes $assets) -cne $before) { throw 'Missing font bundle changed release assets.' }
-    } finally { Remove-Item -LiteralPath $omit }
-}
-Invoke-PackageCase 'failed default build preserves every existing release asset' {
-    $before = Get-ReleaseHashes $assets
-    [IO.File]::WriteAllText((Join-Path $automaticRoot 'fail-build'), '', $utf8)
-    Assert-Rejected @{} 'Fixture build failed'
-    if ((Get-ReleaseHashes $assets) -cne $before) { throw 'Failed build changed existing release assets.' }
-}
-Invoke-PackageCase 'failed build creates no package from previous DLLs' {
-    $failedRoot = Join-Path $automaticRoot 'failed-release'
-    Assert-Rejected @{ OutputRoot = $failedRoot } 'Fixture build failed'
-    if (Test-Path -LiteralPath $failedRoot) { throw 'Failed build packaged an old DLL.' }
-}
-Invoke-PackageCase 'missing ZIP source preserves old ZIP, checksums and metadata and removes the temporary archive' {
-    . (Join-Path $automaticScripts 'package-files.ps1')
-    $before = Get-ReleaseHashes $assets
-    $files = [ordered]@{
-        'BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll' = $goodDlls[$dllNames[0]]
-        'BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle' = (Join-Path $testRoot 'missing-source.bundle')
+    Test-Case 'failed-zip-replacement-removes-temporary-file-and-preserves-old-zip' {
+        $before = Get-Fingerprint $assets
+        Assert-Rejected { New-AstralZipPackage -Files ([ordered]@{ 'missing.bundle' = (Join-Path $testRoot 'missing.bundle') }) -OutputRoot $assets -ZipName $names[0] }
+        Assert-True ((Get-Fingerprint $assets) -ceq $before) 'Failed ZIP replacement leaked or changed files.'
     }
-    $failed = $false
-    try { New-AstralPluginPackage -Files $files -OutputRoot $assets -ZipName $zipName | Out-Null } catch [IO.FileNotFoundException] { $failed = $true }
-    if (-not $failed -or (Get-ReleaseHashes $assets) -cne $before) { throw 'Failed ZIP replacement changed release assets or leaked a temporary archive.' }
-    Assert-Package
-}
-Write-Output "$passed Korean release package checks passed. No game or external service was used."
-$global:LASTEXITCODE = 0
-} finally {
-    if (Test-Path -LiteralPath $testRoot) {
-        $cleanupRoot = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $testRoot).ProviderPath)
-        $cleanupParent = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $testParent).ProviderPath).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
-        if (-not $cleanupRoot.StartsWith($cleanupParent, [StringComparison]::OrdinalIgnoreCase) -or
-            [IO.Path]::GetFileName($cleanupRoot) -cnotmatch '\A[a-f0-9]{32}\z') {
-            throw 'Refusing to clean a package fixture outside the unique test directory.'
-        }
-        Remove-Item -LiteralPath $cleanupRoot -Recurse -Force
-    }
-}
+    Write-Output "Package tests passed: $passed cases. Only local fixture archives and throwaway signing keys were used."
+    $global:LASTEXITCODE = 0
+} finally { if (Test-Path -LiteralPath $testRoot) { Remove-Item -LiteralPath $testRoot -Recurse -Force } }

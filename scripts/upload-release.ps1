@@ -1,10 +1,13 @@
+#requires -Version 7.2
 [CmdletBinding()]
 param(
-    [string]$Tag = '',
+    [Parameter(Mandatory)][string]$Tag,
     [string]$AssetRoot = '',
     [string]$NotesFile = '',
     [switch]$Draft,
-    [switch]$Preview
+    [switch]$Preview,
+    [switch]$Preflight,
+    [switch]$CreateTag
 )
 
 $ErrorActionPreference = 'Stop'
@@ -12,9 +15,8 @@ $PSNativeCommandUseErrorActionPreference = $false
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 . (Join-Path $PSScriptRoot 'project-version.ps1')
 . (Join-Path $PSScriptRoot 'release-notes.ps1')
-$version = Get-AstralProjectVersion -Root $repoRoot
-if (-not $Tag) { $Tag = "v$version" }
-if ((ConvertTo-AstralVersion $Tag -Tag) -cne $version) { throw 'Upload tag must match VERSION.' }
+. (Join-Path $PSScriptRoot 'package-files.ps1')
+$version = ConvertTo-AstralVersion $Tag -Tag
 $git = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Source
 
 function Invoke-UploadCommand {
@@ -60,30 +62,13 @@ $selector = "github.com/$repository"
 
 if (-not $AssetRoot) { $AssetRoot = Join-Path $repoRoot "dist/release/$Tag" }
 $AssetRoot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($AssetRoot)
-$zipName = "AstralPartyKoreanPlugin-$Tag.zip"
-$names = @($zipName, 'SHA256SUMS.txt')
-$hashes = @{}
-foreach ($name in $names) {
-    $path = Join-Path $AssetRoot $name
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing release asset: $name. Run scripts/package-release.ps1 first." }
-    $hashes[$name] = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+$names = @(Get-AstralReleaseAssetNames $Tag)
+$hashes = if ($Preflight) { @{} } else { Assert-AstralReleaseAssets -Tag $Tag -Repository $repository -Root $AssetRoot }
+$localTag = Invoke-UploadGit @('tag', '--list', $Tag)
+if ($localTag) {
+    if ((Invoke-UploadGit @('rev-parse', '--verify', "$Tag^{commit}")) -cne $sourceCommit) { throw 'Existing local tag points to a different source commit.' }
+    if ($CreateTag -and (Invoke-UploadGit @('cat-file', '-t', $Tag)) -cne 'tag') { throw 'Release tags must be annotated.' }
 }
-$manifest = [IO.File]::ReadAllLines((Join-Path $AssetRoot 'SHA256SUMS.txt'))
-if ($manifest.Count -ne 1 -or $manifest[0] -cne "$($hashes[$zipName])  $zipName") {
-    throw 'Release checksum must match the ZIP and contain only that ZIP. Re-run scripts/package-release.ps1.'
-}
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$archive = [IO.Compression.ZipFile]::OpenRead((Join-Path $AssetRoot $zipName))
-try {
-    $expected = @(
-        'BepInEx/plugins/AstralPartyKoreanPlugin/astralkorean_fonts.bundle',
-        'BepInEx/plugins/AstralPartyKoreanPlugin/AstralPartyKoreanPlugin.dll'
-    )
-    $actual = @($archive.Entries | ForEach-Object { $_.FullName } | Sort-Object)
-    if ($actual.Count -ne $expected.Count -or ($actual -join "`n") -cne (($expected | Sort-Object) -join "`n")) {
-        throw 'Release ZIP must contain only the plugin DLL and font bundle at their installation paths.'
-    }
-} finally { $archive.Dispose() }
 if ($NotesFile) {
     $NotesFile = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($NotesFile)
     if (-not (Test-Path -LiteralPath $NotesFile -PathType Leaf)) { throw 'Missing release notes file.' }
@@ -139,6 +124,10 @@ $release = if ($releases.Count) { $releases[0] } else { $null }
 if ($release -and -not $remoteTag) {
     if (-not $release.draft -or $release.target_commitish -cne $sourceCommit) { throw 'Existing release does not identify the built source commit.' }
 }
+if ($Preflight) {
+    [pscustomobject]@{ Repository = $repository; Tag = $Tag; SourceCommit = $sourceCommit; Preflight = $true }
+    return
+}
 
 $snapshotParent = Join-Path $repoRoot '.work/upload-release'
 $snapshotRoot = Join-Path $snapshotParent ([Guid]::NewGuid().ToString('N'))
@@ -164,6 +153,10 @@ try {
     }
     # Recheck source before the first write; file uploads use the validated snapshot.
     if ((Invoke-UploadGit @('rev-parse', '--verify', 'HEAD^{commit}')) -cne $sourceCommit -or (Invoke-UploadGit @('status', '--porcelain=v1', '--untracked-files=normal'))) { throw 'Source changed during upload preparation.' }
+    if ($CreateTag) {
+        if (-not $localTag) { Invoke-UploadGit @('tag', '-a', $Tag, $sourceCommit, '-m', "Release $Tag") | Out-Null }
+        Invoke-UploadGit @('push', 'origin', "refs/tags/$Tag") | Out-Null
+    }
     if (-not $release) {
         $arguments = @('release', 'create', $Tag, '--repo', $selector, '--target', $sourceCommit, '--title', $Tag, '--draft')
         $notesCopy = Join-Path $snapshotRoot 'release-notes.md'
@@ -175,7 +168,7 @@ try {
     if (-not $Draft -and (-not $release -or $release.draft)) {
         Invoke-UploadCommand $gh @('release', 'edit', $Tag, '--repo', $selector, '--draft=false') | Out-Null
     }
-    Write-Output "Release upload complete: $Tag (ZIP and SHA256SUMS.txt only)."
+    Write-Output "Release upload complete: $Tag (both ZIPs, signed update manifest, and SHA256SUMS.txt)."
     Write-Output "https://github.com/$repository/releases"
 } finally {
     $resolvedSnapshot = [IO.Path]::GetFullPath($snapshotRoot)

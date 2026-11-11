@@ -5,67 +5,41 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 . (Join-Path $repoRoot 'scripts/project-version.ps1')
 $passed = 0
-
-foreach ($value in @('0.0.0', '0.0.1', '1.2.3', '65534.65534.65534')) {
-    if ((ConvertTo-AstralVersion $value) -cne $value -or (ConvertTo-AstralVersion "v$value" -Tag) -cne $value) {
-        throw "Valid version was not preserved: $value"
-    }
+foreach ($value in @('0.0.0', '1.2.3', '65534.65534.65534', '1.2.3-dev.0', '1.2.3-rc.1+build.02', '1.2.3-0', '1.2.3-alpha-1')) {
+    if ((ConvertTo-AstralVersion $value) -cne $value) { throw "Valid SemVer changed: $value" }
     $passed++
 }
-foreach ($value in @('', '01.0.1', '1.00.0', '1.0.01', '1.0', '1.0.0.0', '1.0.0-rc.1',
-        '1.0.0+build.1', 'v1.0.0', '-1.0.0', ' 1.0.0', "1.0.0`n", '65535.0.0', '1.65535.0', '1.0.65535', '99999999999999999.0.0')) {
+foreach ($value in @('', '01.0.1', '1.00.0', '1.0.01', '1.0', '1.0.0.0', '1.0.0-01', '1.0.0-alpha.01', '1.0.0-', '1.0.0+', 'v1.0.0', '-1.0.0', ' 1.0.0', "1.0.0`n", '65535.0.0', '1.65535.0', '1.0.65535', '99999999999999999.0.0')) {
     $failed = $false
     try { ConvertTo-AstralVersion $value | Out-Null } catch { $failed = $true }
-    if (-not $failed) { throw 'Invalid version was accepted.' }
+    if (-not $failed) { throw "Invalid version accepted: $value" }
     $passed++
+}
+foreach ($value in @('1.2.3-rc.1', '1.2.3+build')) {
+    $failed = $false
+    try { ConvertTo-AstralVersion $value -Release | Out-Null } catch { $failed = $true }
+    if (-not $failed) { throw 'Release accepted a non-stable version.' }
 }
 foreach ($tag in @('1.0.0', 'V1.0.0', 'v01.0.0', 'v1.0.0-rc.1', 'v65535.0.0')) {
     $failed = $false
     try { ConvertTo-AstralVersion $tag -Tag | Out-Null } catch { $failed = $true }
-    if (-not $failed) { throw 'Invalid tag was accepted.' }
+    if (-not $failed) { throw 'Invalid release tag accepted.' }
     $passed++
 }
+if ((ConvertTo-AstralVersion 'v1.2.3' -Tag) -cne '1.2.3') { throw 'Canonical tag parsing failed.' }
 foreach ($case in @(
-        @{ Version = '0.0.1'; Bump = 'patch'; Expected = '0.0.2' },
-        @{ Version = '1.2.3'; Bump = 'minor'; Expected = '1.3.0' },
-        @{ Version = '1.2.3'; Bump = 'major'; Expected = '2.0.0' },
-        @{ Version = '1.65534.65534'; Bump = 'major'; Expected = '2.0.0' },
-        @{ Version = '1.2.65534'; Bump = 'minor'; Expected = '1.3.0' },
-        @{ Version = '1.2.65533'; Bump = 'patch'; Expected = '1.2.65534' })) {
-    if ((Get-AstralNextVersion -Version $case.Version -Bump $case.Bump) -cne $case.Expected) {
-        throw 'Version increment did not preserve/reset the correct components.'
-    }
+    @{ Version = '0.0.1'; Bump = 'patch'; Expected = '0.0.2' },
+    @{ Version = '1.2.3'; Bump = 'minor'; Expected = '1.3.0' },
+    @{ Version = '0.2.3'; Bump = 'major'; Expected = '1.0.0' },
+    @{ Version = '1.65534.65534'; Bump = 'major'; Expected = '2.0.0' },
+    @{ Version = '1.2.65534'; Bump = 'minor'; Expected = '1.3.0' })) {
+    if ((Get-AstralNextVersion -Version $case.Version -Bump $case.Bump) -cne $case.Expected) { throw 'Incorrect bump/reset.' }
     $passed++
 }
 foreach ($bump in @('patch', 'minor', 'major', 'miner')) {
     $failed = $false
     try { Get-AstralNextVersion -Version '65534.65534.65534' -Bump $bump | Out-Null } catch { $failed = $true }
-    if (-not $failed) { throw 'An overflow or invalid increment type was accepted.' }
-    $passed++
+    if (-not $failed) { throw 'Overflow or invalid bump accepted.' }
 }
-$testRoot = Join-Path $repoRoot ('.work/project-version-tests/' + [Guid]::NewGuid().ToString('N'))
-[IO.Directory]::CreateDirectory($testRoot) | Out-Null
-try {
-    try {
-    $failed = $false
-        try { Get-AstralProjectVersion -Root $testRoot | Out-Null } catch { $failed = $true }
-        if (-not $failed) { throw 'Missing VERSION file was accepted.' }
-        $passed++
-        [IO.File]::WriteAllText((Join-Path $testRoot 'VERSION'), "0.0.1`r`n", [Text.UTF8Encoding]::new($false))
-        if ((Get-AstralProjectVersion -Root $testRoot) -cne '0.0.1') { throw 'VERSION file was not read correctly.' }
-        $passed++
-        Write-Output "Project version tests passed: $passed cases."
-    }
-    finally {
-        $resolvedFixture = [IO.Path]::GetFullPath($testRoot)
-        $expectedParent = [IO.Path]::GetFullPath((Join-Path $repoRoot '.work/project-version-tests')).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
-        if (-not $resolvedFixture.StartsWith($expectedParent, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unexpected test fixture location.' }
-        if (Test-Path -LiteralPath $resolvedFixture) { Remove-Item -LiteralPath $resolvedFixture -Recurse -Force }
-    }
-    $global:LASTEXITCODE = 0
-} finally {
-    $resolved = [IO.Path]::GetFullPath($testRoot)
-    $parent = [IO.Path]::GetFullPath((Join-Path $repoRoot '.work/project-version-tests')).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
-    if (-not $resolved.StartsWith($parent, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unexpected version test fixture location.' }
-    if (Test-Path -LiteralPath $resolved) { Remove-Item -LiteralPath $resolved -Recurse -Force }
-}
+Write-Output "Project version tests passed: $passed cases."
+$global:LASTEXITCODE = 0

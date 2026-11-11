@@ -1,4 +1,4 @@
-﻿# Shared commit parsing and Markdown for release preparation and upload.
+﻿# Shared commit parsing and Markdown for the release command and upload retries.
 function ConvertFrom-AstralCommitLog {
     param([string]$Log)
 
@@ -33,17 +33,17 @@ function New-AstralReleaseNotes {
     $installation = @'
 ## 설치
 
-1. 게임을 종료합니다.
-2. **BepInEx 6 Unity IL2CPP Windows x64**를 먼저 설치하고, [설치 안내]({{repo}}#설치)에 따라 `BepInEx/config/BepInEx.cfg`를 설정합니다.
-3. [AstralPartyKoreanPlugin-{{tag}}.zip]({{repo}}/releases/download/{{tag}}/AstralPartyKoreanPlugin-{{tag}}.zip)을 내려받아 압축을 풉니다.
-4. 압축에서 꺼낸 `BepInEx` 폴더를 **게임 실행 파일이 있는 폴더**에 복사하고 기존 폴더와 합칩니다.
+1. 게임을 종료하고 [AstralPartyKoreanPlugin-{{tag}}-full.zip]({{repo}}/releases/download/{{tag}}/AstralPartyKoreanPlugin-{{tag}}-full.zip)을 내려받아 별도 폴더에 압축을 풉니다.
+2. **install.bat**를 실행합니다. 인터넷 없이 게임을 찾아 **BepInEx 6 Unity IL2CPP Windows x64 (be.788)**, `BepInEx/config/BepInEx.cfg` 설정과 플러그인을 설치하고 게임을 시작합니다. 설치 EXE는 사용하지 않습니다.
+3. 이미 BepInEx가 준비되어 있고 수동으로 업데이트하려면 [AstralPartyKoreanPlugin-{{tag}}.zip]({{repo}}/releases/download/{{tag}}/AstralPartyKoreanPlugin-{{tag}}.zip)의 `BepInEx` 폴더를 **게임 실행 파일이 있는 폴더**에 복사합니다.
+4. 게임 언어를 글로벌판 `English`, 중국판 `简体中文`로 설정합니다. 자세한 내용은 [설치 안내]({{repo}}#설치)를 참고하세요.
 
 | Steam판 | 설치 폴더 | 실행 파일 |
 | --- | --- | --- |
 | 글로벌판 | `8vJXnINT` | `AstralParty_INT.exe` |
 | 중국판 | `8vJXn6CN` | `AstralParty_CN.exe` |
 
-설치 후 DLL과 폰트 번들이 함께 있어야 합니다. ZIP에는 아래 두 파일만 포함됩니다.
+설치 후 DLL과 폰트 번들이 함께 있어야 합니다. 플러그인 전용 ZIP에는 아래 두 파일만 포함되며 전체 ZIP에는 BepInEx와 오프라인 설치 스크립트도 들어 있습니다.
 
 ```text
 BepInEx/
@@ -53,7 +53,7 @@ BepInEx/
       └─ astralkorean_fonts.bundle
 ```
 
-Steam에서 게임을 실행하면 `https://file.maynutlab.com/translation-pack/latest.json`에서 번역 팩을 확인합니다. 게임 내 오버레이에서 적용 상태와 플러그인 업데이트를 확인할 수 있습니다.
+Steam에서 게임을 실행하면 `https://file.maynutlab.com/translation-pack/latest.json`에서 번역 팩을 확인합니다. 플러그인도 서명된 최신 업데이트를 검증해 자동으로 설치합니다. 게임 내 오버레이에 재시작 안내가 나오면 **지금 다시 시작**을 누르거나 게임을 다시 실행하세요.
 
 ### 기존 버전에서 업데이트
 
